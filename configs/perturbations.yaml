@@ -1,0 +1,79 @@
+dietary:
+  mixed_meal:
+    type: meal
+    parameters:
+      carbohydrate_g: 50
+      duration_minutes: 30
+    effects:
+      - target: blood.glucose
+        profile: spike
+        peak_time: 30
+        peak_magnitude: 140
+        decay_rate: 0.05
+      - target: organism.fed_status
+        value: fed
+        duration: 240
+  
+  high_carb_meal:
+    type: meal
+    parameters:
+      carbohydrate_g: 100
+      duration_minutes: 20
+    effects:
+      - target: blood.glucose
+        profile: spike
+        peak_time: 80
+        peak_magnitude: 400
+        decay_rate: 0.04
+
+exercise:
+  moderate_aerobic:
+    type: exercise
+    parameters:
+      intensity: 0.6
+      duration_minutes: 30
+    effects:
+      - target: muscle_tissue.glucose
+        rate: -0.2
+      - target: organism.exercise_intensity
+        value: 0.6
+
+pharmacological:
+  insulin_injection:
+    type: medication
+    parameters:
+      units: 10
+    effects:
+      - target: blood.insulin
+        profile: injection
+        peak_time: 60
+        peak_magnitude: 100
+        decay_rate: 0.08
+  
+  metformin:
+    type: medication
+    parameters:
+      dose_mg: 500
+      duration_hours: 12
+    effects:
+      - target: model.hepatic_glucose_production.production_rate
+        factor: 0.7
+
+chronic:
+  aging:
+    type: chronic_condition
+    parameters:
+      duration_years: 1
+    effects:
+      - target: model.insulin_secretion.glucose_sensitivity
+        rate: -0.00001  # Gradual decline per second
+      - target: model.insulin_secretion.max_secretion
+        rate: -0.0001
+  
+  insulin_resistance:
+    type: chronic_condition
+    effects:
+      - target: model.glucose_uptake_muscle.insulin_sensitivity
+        factor: 0.7
+      - target: model.glucose_uptake_adipose.insulin_sensitivity
+        factor: 0.6

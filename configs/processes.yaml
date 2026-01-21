@@ -1,0 +1,66 @@
+processes:
+  insulin_secretion:
+    class: models.physiology.InsulinSecretion
+    timescale: minutes
+    dependencies: []
+    parameters:
+      glucose_sensitivity: 1.0
+      basal_secretion: 5.0
+      max_secretion: 150.0
+  
+  glucagon_secretion:
+    class: models.physiology.GlucagonSecretion
+    timescale: minutes
+    dependencies: [insulin_secretion]
+    parameters:
+      basal_secretion: 60.0
+  
+  glucose_uptake_muscle:
+    class: models.physiology.GlucoseUptake
+    timescale: minutes
+    dependencies: [insulin_secretion]
+    parameters:
+      target_entity: muscle_tissue
+      basal_rate: 0.01
+      insulin_sensitivity: 1.0
+  
+  glucose_uptake_adipose:
+    class: models.physiology.GlucoseUptake
+    timescale: minutes
+    dependencies: [insulin_secretion]
+    parameters:
+      target_entity: adipose_tissue
+      basal_rate: 0.005
+      insulin_sensitivity: 1.0
+  
+  glycogen_synthesis:
+    class: models.physiology.GlycogenSynthesis
+    timescale: hours
+    dependencies: [insulin_secretion]
+  
+  glycogen_breakdown:
+    class: models.physiology.GlycogenBreakdown
+    timescale: hours
+    dependencies: [glucagon_secretion]
+  
+  hepatic_glucose_production:
+    class: models.physiology.HepaticGlucoseProduction
+    timescale: hours
+    dependencies: [glucagon_secretion, insulin_secretion]
+    parameters:
+      production_rate: 50.0
+  
+  circulatory_transport:
+    class: models.physiology.CirculatoryTransport
+    timescale: seconds
+    dependencies: []
+  
+  hormone_degradation:
+    class: models.physiology.HormoneDegradation
+    timescale: minutes
+    dependencies: []
+
+  f_cell_dynamics:  # ← ADDED
+    class: models.physiology.f_cell_polypeptide_0036322
+    timescale: minutes
+    dependencies: []

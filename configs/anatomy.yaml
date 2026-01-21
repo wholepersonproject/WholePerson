@@ -1,0 +1,173 @@
+# Entity definitions
+# spatial_type: localized (has position), distributed (everywhere)
+
+entities:
+  # Localized organs
+  liver:
+    type: organ
+    representation: lumped
+    spatial_type: localized
+    position: [40, -20, 380]  # mm from body center
+    volume: 1.5  # Liters
+    signals:
+      glucose: 100.0
+      glycogen: 50.0
+      insulin: 5.0
+      glucagon: 60.0
+  
+  pancreas:
+    type: organ
+    representation: spatial
+    spatial_type: localized
+    position: [-40, -30, 350]
+    shape: [50, 50, 50]
+    dx: 0.1  # mm per voxel
+    volume: 0.1
+    signals:
+      glucose: 100.0
+      insulin: 50.0
+      glucagon: 80.0
+  
+  muscle_tissue:
+    type: tissue
+    representation: lumped
+    spatial_type: localized
+    position: [0, 0, 300]
+    volume: 20.0
+    signals:
+      glucose: 90.0
+      glycogen: 15.0
+      insulin: 5.0
+  
+  adipose_tissue:
+    type: tissue
+    representation: lumped
+    spatial_type: localized
+    position: [0, 0, 250]
+    volume: 15.0
+    signals:
+      glucose: 90.0
+      free_fatty_acids: 0.4
+      insulin: 5.0
+  
+  brain:
+    type: organ
+    representation: lumped
+    spatial_type: localized
+    position: [0, 30, 650]
+    volume: 1.4
+    signals:
+      glucose: 80.0
+      oxygen: 95.0
+  
+  heart:
+    type: organ
+    representation: lumped
+    spatial_type: localized
+    position: [20, 0, 450]
+    volume: 0.3
+    signals:
+      glucose: 90.0
+      oxygen: 95.0
+  
+  # Distributed fluids
+  blood:
+    type: fluid
+    representation: lumped
+    spatial_type: distributed
+    volume: 5.0
+    signals:
+      glucose: 90.0
+      insulin: 5.0
+      glucagon: 60.0
+      oxygen: 95.0
+      lactate: 1.0
+      pancreatic_polypeptide: 30.0
+  
+  # Cell populations
+  beta_cells:
+    type: cell_population
+    representation: agents
+    spatial_type: localized
+    parent_entity: pancreas
+    count: 1000
+    distribution: random
+    agent_properties:
+      glucose_sensitivity: 1.0
+      insulin_granules: 150
+  
+  f_cells:  # ← ADDED ENTIRE SECTION
+    type: cell_population
+    representation: agents
+    count: 1000
+    agent_properties:
+      secretion_capacity: 0.5
+      activation_threshold: 0.5
+
+  alpha_cells:
+    type: cell_population
+    representation: agents
+    spatial_type: localized
+    parent_entity: pancreas
+    count: 500
+    distribution: random
+    agent_properties:
+      glucagon_secretion_rate: 5.0
+
+# Flows
+flows:
+  blood_to_liver:
+    from: blood
+    to: liver
+    rate: 1.35
+    type: arterial
+  
+  blood_to_pancreas:
+    from: blood
+    to: pancreas
+    rate: 0.08
+    type: arterial
+  
+  blood_to_muscle:
+    from: blood
+    to: muscle_tissue
+    rate: 1.0
+    type: arterial
+  
+  blood_to_adipose:
+    from: blood
+    to: adipose_tissue
+    rate: 0.2
+    type: arterial
+  
+  blood_to_brain:
+    from: blood
+    to: brain
+    rate: 0.75
+    type: arterial
+  
+  blood_to_heart:
+    from: blood
+    to: heart
+    rate: 0.25
+    type: arterial
+  
+  pancreas_to_blood:
+    from: pancreas
+    to: blood
+    rate: 0.08
+    type: venous
+  
+  liver_to_blood:
+    from: liver
+    to: blood
+    rate: 1.35
+    type: venous
+
+# Organism states
+organism:
+  fed_status: fasted
+  exercise_intensity: 0.0
+  body_position: standing
+  heart_rate: 70.0
+  age_years: 30.0
