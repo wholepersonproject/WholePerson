@@ -7,6 +7,18 @@ class DependencyGraph:
         self.nodes[process_id] = {}
         self.edges[process_id] = []
     
+    def remove_process(self, process_id):
+        """Remove a process and all edges involving it"""
+        if process_id in self.nodes:
+            del self.nodes[process_id]
+        if process_id in self.edges:
+            del self.edges[process_id]
+        
+        # Remove edges pointing to this process
+        for source in self.edges:
+            if process_id in self.edges[source]:
+                self.edges[source].remove(process_id)
+    
     def add_dependency(self, source, target):
         if source not in self.edges:
             self.edges[source] = []

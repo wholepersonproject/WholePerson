@@ -60,7 +60,7 @@ processes:
     timescale: minutes
     dependencies: []
 
-  f_cell_dynamics:  # ← ADDED
+  f_cell_dynamics:  
     class: models.physiology.f_cell_polypeptide_0036322
     timescale: minutes
     dependencies: []

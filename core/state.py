@@ -1,16 +1,99 @@
 import numpy as np
 
 class SimulationState:
-    '''Unified state with flexible entity representations'''
+    '''
+    Unified state with hierarchical organization
+    
+    Hierarchy levels:
+      - molecules/cells (entities)
+      - tissues (new!)
+      - organs (new!)
+      - organ_systems
+      - organism
+    '''
     
     def __init__(self):
         self.time = 0.0
-        self.entities = {}
+        
+        # Hierarchical organization (from small to large)
+        self.entities = {}       # Molecules, cells, cell populations
+        self.tissues = {}        # Collections of similar cells (NEW!)
+        self.organs = {}         # Collections of tissues (NEW!)
+        self.organ_systems = {}  # Collections of organs
+        self.organism = {}       # Whole-body state
+        
         self.flows = {}
-        self.organism = {}
-        self.organ_systems = {}  # NEW: Track system-wide states
         self.history = []
-        self._engine = None  # Set by engine for perturbation access
+        self._engine = None  # Set by engine for dynamic changes
+    
+    # =========================================================================
+    # TISSUE MANAGEMENT (NEW!)
+    # =========================================================================
+    
+    def add_tissue(self, tissue_id, tissue_type, **kwargs):
+        """
+        Add a tissue (collection of similar cells)
+        
+        Args:
+            tissue_id: Unique identifier (e.g., 'cardiac_muscle')
+            tissue_type: Type of tissue (e.g., 'muscle', 'epithelial', 'connective')
+            **kwargs: Additional properties (signals, cell_types, etc.)
+        """
+        self.tissues[tissue_id] = {
+            'type': tissue_type,
+            'signals': kwargs.get('signals', {}),
+            'cell_types': kwargs.get('cell_types', []),
+            **kwargs
+        }
+    
+    def get_tissue_state(self, tissue_id, state_name, default=None):
+        """Get state from a tissue"""
+        if tissue_id not in self.tissues:
+            return default
+        return self.tissues[tissue_id].get('signals', {}).get(state_name, default)
+    
+    def set_tissue_state(self, tissue_id, state_name, value):
+        """Set state for a tissue"""
+        if tissue_id not in self.tissues:
+            self.tissues[tissue_id] = {'signals': {}}
+        if 'signals' not in self.tissues[tissue_id]:
+            self.tissues[tissue_id]['signals'] = {}
+        self.tissues[tissue_id]['signals'][state_name] = value
+    
+    # =========================================================================
+    # ORGAN MANAGEMENT (NEW!)
+    # =========================================================================
+    
+    def add_organ(self, organ_id, organ_type, **kwargs):
+        """
+        Add an organ (collection of tissues)
+        
+        Args:
+            organ_id: Unique identifier (e.g., 'heart', 'liver', 'kidney')
+            organ_type: Type of organ
+            **kwargs: Additional properties (signals, tissues, mass, etc.)
+        """
+        self.organs[organ_id] = {
+            'type': organ_type,
+            'signals': kwargs.get('signals', {}),
+            'tissues': kwargs.get('tissues', []),
+            'mass': kwargs.get('mass'),
+            **kwargs
+        }
+    
+    def get_organ_state(self, organ_id, state_name, default=None):
+        """Get state from an organ"""
+        if organ_id not in self.organs:
+            return default
+        return self.organs[organ_id].get('signals', {}).get(state_name, default)
+    
+    def set_organ_state(self, organ_id, state_name, value):
+        """Set state for an organ"""
+        if organ_id not in self.organs:
+            self.organs[organ_id] = {'signals': {}}
+        if 'signals' not in self.organs[organ_id]:
+            self.organs[organ_id]['signals'] = {}
+        self.organs[organ_id]['signals'][state_name] = value
     
     # =========================================================================
     # ENTITY MANAGEMENT
@@ -257,9 +340,19 @@ class SimulationState:
         snapshot = {
             'time': self.time,
             'entities': {},
-            'organism': self.organism.copy(),
-            'organ_systems': {}
+            'tissues': {},
+            'organs': {},
+            'organ_systems': {},
+            'organism': self.organism.copy()
         }
+        
+        # Copy tissue states
+        for tissue_id, tissue in self.tissues.items():
+            snapshot['tissues'][tissue_id] = tissue.get('signals', {}).copy()
+        
+        # Copy organ states
+        for organ_id, organ in self.organs.items():
+            snapshot['organs'][organ_id] = organ.get('signals', {}).copy()
         
         # Copy organ system states
         for system_name, states in self.organ_systems.items():
