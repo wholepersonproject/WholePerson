@@ -1,5 +1,6 @@
 import yaml
 import numpy as np
+# loader.py
 from importlib import import_module
 
 class EntityFactory:
@@ -100,17 +101,47 @@ class ProcessLoader:
             self.registry = yaml.safe_load(f)
     
     def load_all_processes(self, engine):
+        """Load all processes from registry"""
         processes = self.registry['processes']
         
         for process_id, config in processes.items():
+            # Parse module and class
+            module_path, class_name = config['class'].rsplit('.', 1)
+            module = import_module(module_path)
+            ModelClass = getattr(module, class_name)
+            
+            # Get parameters
+            params = config.get('parameters', {})
+            
+            # Instantiate
+            model = ModelClass(**params)
+            
+            # Get dependencies
+            dependencies = config.get('dependencies', [])
+            
+            # Register
+            engine.register_model(process_id, model, dependencies)
+        
+        print(f"✓ Loaded {len(engine.models)} processes")
+    
+    def load_specific_processes(self, engine, process_ids):
+        """Load only specific processes"""
+        processes = self.registry['processes']
+        
+        for process_id in process_ids:
+            if process_id not in processes:
+                print(f"⚠️  Process '{process_id}' not found in registry")
+                continue
+            
+            config = processes[process_id]
             module_path, class_name = config['class'].rsplit('.', 1)
             module = import_module(module_path)
             ModelClass = getattr(module, class_name)
             
             params = config.get('parameters', {})
             model = ModelClass(**params)
-            
             dependencies = config.get('dependencies', [])
+            
             engine.register_model(process_id, model, dependencies)
         
-        print(f"✓ Loaded {len(engine.models)} processes")
+        print(f"✓ Loaded {len(process_ids)} specific processes")
