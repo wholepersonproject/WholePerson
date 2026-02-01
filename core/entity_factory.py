@@ -1,6 +1,5 @@
 import yaml
 import numpy as np
-# loader.py
 from importlib import import_module
 
 class EntityFactory:
@@ -9,9 +8,21 @@ class EntityFactory:
             self.schema = yaml.safe_load(f)
     
     def initialize_simulation_state(self, state):
+        """Initialize state from anatomy schema"""
+        
+        # Create organs first (they may be referenced by entities)
+        for organ_id, config in self.schema.get('organs', {}).items():
+            self._create_organ(state, organ_id, config)
+        
+        # Create tissues
+        for tissue_id, config in self.schema.get('tissues', {}).items():
+            self._create_tissue(state, tissue_id, config)
+        
+        # Create entities (fluids, cell populations, etc.)
         for entity_id, config in self.schema.get('entities', {}).items():
             self._create_entity(state, entity_id, config)
         
+        # Create flows
         for flow_id, config in self.schema.get('flows', {}).items():
             state.add_flow(
                 flow_id,
@@ -21,12 +32,68 @@ class EntityFactory:
                 config.get('type', 'transport')
             )
         
+        # Set organism state
         for state_name, value in self.schema.get('organism', {}).items():
             state.set_organism_state(state_name, value)
         
-        print(f"✓ Initialized {len(state.entities)} entities, {len(state.flows)} flows")
+        print(f"✓ Initialized:")
+        print(f"  Entities: {len(state.entities)}")
+        print(f"  Organs: {len(state.organs)}")
+        print(f"  Tissues: {len(state.tissues)}")
+        print(f"  Flows: {len(state.flows)}")
+    
+    def _create_organ(self, state, organ_id, config):
+        """Create an organ in state.organs (can be lumped or spatial)"""
+        representation = config.get('representation', 'lumped')
+        organ_system = config.get('organ_system', 'unknown')
+        
+        if representation == 'lumped':
+            state.add_organ(
+                organ_id,
+                organ_system,  # This is organ_type parameter
+                representation=representation,
+                spatial_type=config.get('spatial_type', 'localized'),
+                position=config.get('position'),
+                volume=config.get('volume', 1.0),
+                signals=config.get('signals', {})
+            )
+        
+        elif representation == 'spatial':
+            # Convert scalar signals to spatial fields
+            shape = tuple(config['shape'])
+            spatial_signals = {}
+            for signal_name, value in config.get('signals', {}).items():
+                if isinstance(value, (int, float)):
+                    # Convert scalar to uniform field
+                    spatial_signals[signal_name] = np.full(shape, value, dtype=np.float32)
+                else:
+                    # Already a field
+                    spatial_signals[signal_name] = value
+            
+            state.add_organ(
+                organ_id,
+                organ_system,  # This is organ_type parameter
+                representation=representation,
+                spatial_type=config.get('spatial_type', 'localized'),
+                position=config.get('position'),
+                shape=shape,
+                dx=config.get('dx', 1.0),
+                volume=config.get('volume', 1.0),
+                signals=spatial_signals
+            )
+    
+    def _create_tissue(self, state, tissue_id, config):
+        """Create a tissue in state.tissues"""
+        tissue_type = config.get('type', 'generic')  # Default to 'generic' if not specified
+        
+        state.add_tissue(
+            tissue_id,
+            tissue_type,
+            signals=config.get('signals', {})
+        )
     
     def _create_entity(self, state, entity_id, config):
+        """Create an entity in state.entities (fluids, cell populations)"""
         entity_type = config['type']
         representation = config['representation']
         spatial_type = config.get('spatial_type', 'localized')
@@ -82,7 +149,17 @@ class EntityFactory:
                 )
     
     def _generate_position(self, state, parent_entity_id, distribution):
-        if not parent_entity_id or parent_entity_id not in state.entities:
+        """Generate position for agent-based entities"""
+        if not parent_entity_id:
+            return None
+        
+        # Check if parent is an organ
+        if parent_entity_id in state.organs:
+            # Organs don't have spatial info yet, return None
+            return None
+        
+        # Check if parent is an entity
+        if parent_entity_id not in state.entities:
             return None
         
         parent = state.entities[parent_entity_id]

@@ -1,4 +1,15 @@
 processes:
+  # =========================================================================
+  # CIRCULATION (SECONDS - runs first, distributes signals)
+  # =========================================================================
+  circulatory_transport:
+    class: models.physiology.CirculatoryTransport
+    timescale: seconds
+    dependencies: []
+
+  # =========================================================================
+  # GLUCOSE/INSULIN PATHWAY (MINUTES - frequent execution)
+  # =========================================================================
   insulin_secretion:
     class: models.physiology.InsulinSecretion
     timescale: minutes
@@ -7,14 +18,14 @@ processes:
       glucose_sensitivity: 1.0
       basal_secretion: 5.0
       max_secretion: 150.0
-  
+
   glucagon_secretion:
     class: models.physiology.GlucagonSecretion
     timescale: minutes
-    dependencies: [insulin_secretion]
+    dependencies: []
     parameters:
       basal_secretion: 60.0
-  
+
   glucose_uptake_muscle:
     class: models.physiology.GlucoseUptake
     timescale: minutes
@@ -23,7 +34,7 @@ processes:
       target_entity: muscle_tissue
       basal_rate: 0.01
       insulin_sensitivity: 1.0
-  
+
   glucose_uptake_adipose:
     class: models.physiology.GlucoseUptake
     timescale: minutes
@@ -32,35 +43,66 @@ processes:
       target_entity: adipose_tissue
       basal_rate: 0.005
       insulin_sensitivity: 1.0
-  
-  glycogen_synthesis:
-    class: models.physiology.GlycogenSynthesis
-    timescale: hours
-    dependencies: [insulin_secretion]
-  
-  glycogen_breakdown:
-    class: models.physiology.GlycogenBreakdown
-    timescale: hours
-    dependencies: [glucagon_secretion]
-  
-  hepatic_glucose_production:
-    class: models.physiology.HepaticGlucoseProduction
-    timescale: hours
-    dependencies: [glucagon_secretion, insulin_secretion]
-    parameters:
-      production_rate: 50.0
-  
-  circulatory_transport:
-    class: models.physiology.CirculatoryTransport
-    timescale: seconds
-    dependencies: []
-  
+
   hormone_degradation:
     class: models.physiology.HormoneDegradation
     timescale: minutes
+    dependencies: [insulin_secretion, glucagon_secretion]
+
+  # =========================================================================
+  # GLYCOGEN METABOLISM (HOURS)
+  # =========================================================================
+  glycogen_synthesis:
+    class: models.physiology.GlycogenSynthesis
+    timescale: hours
+    dependencies: [glucose_uptake_muscle, glucose_uptake_adipose]
+
+  glycogen_breakdown:
+    class: models.physiology.GlycogenBreakdown
+    timescale: hours
     dependencies: []
 
-  f_cell_dynamics:  
+  hepatic_glucose_production:
+    class: models.physiology.HepaticGlucoseProduction
+    timescale: hours
+    dependencies: [glycogen_breakdown]
+    parameters:
+      production_rate: 50.0
+
+  # =========================================================================
+  # PANCREATIC POLYPEPTIDE (F-CELLS)
+  # =========================================================================
+  f_cell_dynamics:
     class: models.physiology.f_cell_polypeptide_0036322
     timescale: minutes
     dependencies: []
+
+  # =========================================================================
+  # ERYTHROPOIESIS (EPO/RBC HOMEOSTASIS)
+  # =========================================================================
+  oxygen_delivery:
+    class: models.physiology.OxygenDelivery
+    timescale: seconds
+    dependencies: []
+
+  epo_production:
+    class: models.physiology.ErythropoietinProduction
+    timescale: hours
+    dependencies: []
+    parameters:
+      basal_epo: 10.0
+      max_epo: 200.0
+
+  erythropoiesis:
+    class: models.physiology.ErythropoiesisStimulation
+    timescale: days
+    dependencies: []
+    parameters:
+      basal_production: 2.5e11
+
+  rbc_turnover:
+    class: models.physiology.RBCTurnover
+    timescale: days
+    dependencies: [erythropoiesis]
+    parameters:
+      rbc_lifespan_days: 120.0

@@ -6,6 +6,8 @@ Baseline simulation without perturbations
 from core.state import SimulationState
 from core.entity_factory import EntityFactory, ProcessLoader
 from engine.engine import PhysiologyEngine
+from utils.state_persistence import save_state  # NEW
+
 
 def print_full_state(state):
     """Print all important signals"""
@@ -54,7 +56,10 @@ def run_baseline(duration_hours=24):
     return engine, state
 
 if __name__ == "__main__":
-    engine, state = run_baseline(24)
+    engine, state = run_baseline(500)
     # Save simulation history
     from utils.history import save_simulation
     save_simulation(state, 'results/baseline_sim', formats=['json', 'csv'])
+    # Save final state (for resuming)
+    save_state(state, 'results/baseline_final.pkl', format='pickle')  # NEW
+    save_state(state, 'results/baseline_final.json', format='json') 

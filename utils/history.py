@@ -38,10 +38,14 @@ class HistoryLogger:
             snap_copy = {
                 'time': float(snapshot['time']),
                 'entities': {},
+                'tissues': {},
+                'organs': {},
+                'organ_systems': {},
                 'organism': {k: float(v) if isinstance(v, (np.floating, np.integer)) else v 
                            for k, v in snapshot['organism'].items()}
             }
             
+            # Entities
             for entity_id, signals in snapshot['entities'].items():
                 snap_copy['entities'][entity_id] = {}
                 for signal_name, value in signals.items():
@@ -51,6 +55,33 @@ class HistoryLogger:
                         snap_copy['entities'][entity_id][signal_name] = float(value)
                     else:
                         snap_copy['entities'][entity_id][signal_name] = value
+            
+            # Tissues
+            for tissue_id, signals in snapshot.get('tissues', {}).items():
+                snap_copy['tissues'][tissue_id] = {}
+                for signal_name, value in signals.items():
+                    if isinstance(value, (np.floating, np.integer)):
+                        snap_copy['tissues'][tissue_id][signal_name] = float(value)
+                    else:
+                        snap_copy['tissues'][tissue_id][signal_name] = value
+            
+            # Organs
+            for organ_id, signals in snapshot.get('organs', {}).items():
+                snap_copy['organs'][organ_id] = {}
+                for signal_name, value in signals.items():
+                    if isinstance(value, (np.floating, np.integer)):
+                        snap_copy['organs'][organ_id][signal_name] = float(value)
+                    else:
+                        snap_copy['organs'][organ_id][signal_name] = value
+            
+            # Organ systems
+            for system_name, states in snapshot.get('organ_systems', {}).items():
+                snap_copy['organ_systems'][system_name] = {}
+                for state_name, value in states.items():
+                    if isinstance(value, (np.floating, np.integer)):
+                        snap_copy['organ_systems'][system_name][state_name] = float(value)
+                    else:
+                        snap_copy['organ_systems'][system_name][state_name] = value
             
             history_serializable.append(snap_copy)
         
@@ -84,35 +115,75 @@ class HistoryLogger:
         Args:
             state: SimulationState with history
             filepath: Where to save (e.g., "results/sim_001.csv")
-            signals: List of (entity, signal) tuples to save
-                    If None, saves common ones
+            signals: List of (type, id, signal) tuples to save
+                    type can be 'entity', 'organ', 'tissue', or 'organism'
+                    If None, automatically saves ALL signals from state
         
         Example:
             signals = [
-                ('blood', 'glucose'),
-                ('blood', 'insulin'),
-                ('liver', 'glycogen')
+                ('entity', 'blood', 'glucose'),
+                ('entity', 'blood', 'insulin'),
+                ('organ', 'liver', 'glycogen'),
+                ('organ', 'kidney', 'epo_production_capacity'),
+                ('organism', None, 'age')
             ]
         """
         filepath = Path(filepath)
         filepath.parent.mkdir(parents=True, exist_ok=True)
         
-        # Default signals if not specified
+        # Auto-detect all signals if not specified
         if signals is None:
-            signals = [
-                ('blood', 'glucose'),
-                ('blood', 'insulin'),
-                ('blood', 'glucagon'),
-                ('liver', 'glycogen')
-            ]
+            signals = []
+            
+            # Get first snapshot to detect structure
+            if len(state.history) > 0:
+                snapshot = state.history[0]
+                
+                # All entity signals
+                for entity_id, entity_signals in snapshot.get('entities', {}).items():
+                    for signal_name in entity_signals.keys():
+                        signals.append(('entity', entity_id, signal_name))
+                
+                # All organ signals
+                for organ_id, organ_signals in snapshot.get('organs', {}).items():
+                    for signal_name in organ_signals.keys():
+                        signals.append(('organ', organ_id, signal_name))
+                
+                # All tissue signals
+                for tissue_id, tissue_signals in snapshot.get('tissues', {}).items():
+                    for signal_name in tissue_signals.keys():
+                        signals.append(('tissue', tissue_id, signal_name))
+                
+                # All organ system signals
+                for system_id, system_signals in snapshot.get('organ_systems', {}).items():
+                    for signal_name in system_signals.keys():
+                        signals.append(('organ_system', system_id, signal_name))
+                
+                # All organism state
+                for state_name in snapshot.get('organism', {}).keys():
+                    signals.append(('organism', None, state_name))
+            
+            print(f"  Auto-detected {len(signals)} signals to save")
         
         # Build CSV manually (no pandas dependency)
         lines = []
         
         # Header
         header = ['time_seconds', 'time_hours']
-        for entity_id, signal_name in signals:
-            header.append(f"{entity_id}.{signal_name}")
+        for item in signals:
+            if len(item) == 2:
+                # Old format: (entity_id, signal_name) - assume entity
+                entity_id, signal_name = item
+                header.append(f"{entity_id}.{signal_name}")
+            elif len(item) == 3:
+                # New format: (type, id, signal_name)
+                item_type, item_id, signal_name = item
+                if item_type == 'organism':
+                    header.append(f"organism.{signal_name}")
+                elif item_type == 'organ_system':
+                    header.append(f"organ_system.{item_id}.{signal_name}")
+                else:
+                    header.append(f"{item_type}.{item_id}.{signal_name}")
         lines.append(','.join(header))
         
         # Data rows
@@ -122,15 +193,87 @@ class HistoryLogger:
                 str(snapshot['time'] / 3600)
             ]
             
-            for entity_id, signal_name in signals:
-                if entity_id in snapshot['entities']:
-                    if signal_name in snapshot['entities'][entity_id]:
-                        value = snapshot['entities'][entity_id][signal_name]
-                        row.append(str(float(value)))
+            for item in signals:
+                if len(item) == 2:
+                    # Old format: (entity_id, signal_name)
+                    entity_id, signal_name = item
+                    if entity_id in snapshot['entities']:
+                        if signal_name in snapshot['entities'][entity_id]:
+                            value = snapshot['entities'][entity_id][signal_name]
+                            try:
+                                row.append(str(float(value)))
+                            except (ValueError, TypeError):
+                                row.append(str(value))
+                        else:
+                            row.append('')
                     else:
                         row.append('')
-                else:
-                    row.append('')
+                
+                elif len(item) == 3:
+                    # New format: (type, id, signal_name)
+                    item_type, item_id, signal_name = item
+                    
+                    if item_type == 'entity':
+                        if item_id in snapshot.get('entities', {}):
+                            value = snapshot['entities'][item_id].get(signal_name, '')
+                            if value != '':
+                                try:
+                                    row.append(str(float(value)))
+                                except (ValueError, TypeError):
+                                    row.append(str(value))  # Keep strings as-is
+                            else:
+                                row.append('')
+                        else:
+                            row.append('')
+                    
+                    elif item_type == 'organ':
+                        if item_id in snapshot.get('organs', {}):
+                            value = snapshot['organs'][item_id].get(signal_name, '')
+                            if value != '':
+                                try:
+                                    row.append(str(float(value)))
+                                except (ValueError, TypeError):
+                                    row.append(str(value))
+                            else:
+                                row.append('')
+                        else:
+                            row.append('')
+                    
+                    elif item_type == 'tissue':
+                        if item_id in snapshot.get('tissues', {}):
+                            value = snapshot['tissues'][item_id].get(signal_name, '')
+                            if value != '':
+                                try:
+                                    row.append(str(float(value)))
+                                except (ValueError, TypeError):
+                                    row.append(str(value))
+                            else:
+                                row.append('')
+                        else:
+                            row.append('')
+                    
+                    elif item_type == 'organ_system':
+                        if item_id in snapshot.get('organ_systems', {}):
+                            value = snapshot['organ_systems'][item_id].get(signal_name, '')
+                            if value != '':
+                                try:
+                                    row.append(str(float(value)))
+                                except (ValueError, TypeError):
+                                    row.append(str(value))
+                            else:
+                                row.append('')
+                        else:
+                            row.append('')
+                    
+                    elif item_type == 'organism':
+                        value = snapshot.get('organism', {}).get(signal_name, '')
+                        if value != '':
+                            try:
+                                row.append(str(float(value)))
+                            except (ValueError, TypeError):
+                                row.append(str(value))  # Keep strings like 'fasted'
+                        else:
+                            row.append('')
             
             lines.append(','.join(row))
         
@@ -162,7 +305,21 @@ class HistoryAnalyzer:
     
     @staticmethod
     def to_dataframe(state, signals=None):
-        """Convert history to pandas DataFrame (requires pandas)"""
+        """
+        Convert history to pandas DataFrame (requires pandas)
+        
+        Args:
+            state: SimulationState with history
+            signals: List of (type, id, signal) tuples
+                    If None, uses common entity signals
+        
+        Example:
+            signals = [
+                ('entity', 'blood', 'glucose'),
+                ('organ', 'kidney', 'epo_production_capacity'),
+                ('organism', None, 'age')
+            ]
+        """
         try:
             import pandas as pd
         except ImportError:
@@ -171,47 +328,149 @@ class HistoryAnalyzer:
         
         if signals is None:
             signals = [
-                ('blood', 'glucose'),
-                ('blood', 'insulin'),
-                ('blood', 'glucagon'),
-                ('liver', 'glycogen')
+                ('entity', 'blood', 'glucose'),
+                ('entity', 'blood', 'insulin'),
+                ('entity', 'blood', 'glucagon'),
+                ('entity', 'liver', 'glycogen')
             ]
         
         data = {'time': []}
-        for entity_id, signal_name in signals:
-            data[f"{entity_id}_{signal_name}"] = []
+        
+        # Initialize columns based on signal format
+        for item in signals:
+            if len(item) == 2:
+                # Old format: (entity_id, signal_name)
+                entity_id, signal_name = item
+                data[f"{entity_id}_{signal_name}"] = []
+            elif len(item) == 3:
+                # New format: (type, id, signal_name)
+                item_type, item_id, signal_name = item
+                if item_type == 'organism':
+                    data[f"organism_{signal_name}"] = []
+                elif item_type == 'organ_system':
+                    data[f"organ_system_{item_id}_{signal_name}"] = []
+                else:
+                    data[f"{item_type}_{item_id}_{signal_name}"] = []
         
         for snapshot in state.history:
             data['time'].append(snapshot['time'] / 3600)  # hours
             
-            for entity_id, signal_name in signals:
-                if entity_id in snapshot['entities']:
-                    value = snapshot['entities'][entity_id].get(signal_name, np.nan)
-                    data[f"{entity_id}_{signal_name}"].append(value)
-                else:
-                    data[f"{entity_id}_{signal_name}"].append(np.nan)
+            for item in signals:
+                if len(item) == 2:
+                    # Old format
+                    entity_id, signal_name = item
+                    col_name = f"{entity_id}_{signal_name}"
+                    if entity_id in snapshot.get('entities', {}):
+                        value = snapshot['entities'][entity_id].get(signal_name, np.nan)
+                        data[col_name].append(value)
+                    else:
+                        data[col_name].append(np.nan)
+                
+                elif len(item) == 3:
+                    # New format
+                    item_type, item_id, signal_name = item
+                    
+                    if item_type == 'organism':
+                        col_name = f"organism_{signal_name}"
+                        value = snapshot.get('organism', {}).get(signal_name, np.nan)
+                        data[col_name].append(value)
+                    elif item_type == 'organ_system':
+                        col_name = f"organ_system_{item_id}_{signal_name}"
+                        if item_id in snapshot.get('organ_systems', {}):
+                            value = snapshot['organ_systems'][item_id].get(signal_name, np.nan)
+                            data[col_name].append(value)
+                        else:
+                            data[col_name].append(np.nan)
+                    else:
+                        col_name = f"{item_type}_{item_id}_{signal_name}"
+                        source = snapshot.get(f"{item_type}s", {})  # entities, organs, tissues
+                        if item_id in source:
+                            value = source[item_id].get(signal_name, np.nan)
+                            data[col_name].append(value)
+                        else:
+                            data[col_name].append(np.nan)
         
         return pd.DataFrame(data)
     
     @staticmethod
-    def get_signal_timeseries(state, entity_id, signal_name):
-        """Extract single signal as arrays"""
+    def get_signal_timeseries(state, item_type, item_id, signal_name):
+        """
+        Extract single signal as arrays
+        
+        Args:
+            state: SimulationState with history
+            item_type: 'entity', 'organ', 'tissue', 'organ_system', or 'organism'
+            item_id: ID of the item (None for organism)
+            signal_name: Name of the signal
+        
+        Returns:
+            (times, values): Numpy arrays
+        
+        Example:
+            times, glucose = HistoryAnalyzer.get_signal_timeseries(
+                state, 'entity', 'blood', 'glucose')
+            
+            times, epo = HistoryAnalyzer.get_signal_timeseries(
+                state, 'organ', 'kidney', 'epo_production_capacity')
+            
+            times, age = HistoryAnalyzer.get_signal_timeseries(
+                state, 'organism', None, 'age')
+        """
         times = []
         values = []
         
         for snapshot in state.history:
             times.append(snapshot['time'])
-            if entity_id in snapshot['entities']:
-                values.append(snapshot['entities'][entity_id].get(signal_name, np.nan))
-            else:
-                values.append(np.nan)
+            
+            if item_type == 'entity':
+                if item_id in snapshot.get('entities', {}):
+                    values.append(snapshot['entities'][item_id].get(signal_name, np.nan))
+                else:
+                    values.append(np.nan)
+            
+            elif item_type == 'organ':
+                if item_id in snapshot.get('organs', {}):
+                    values.append(snapshot['organs'][item_id].get(signal_name, np.nan))
+                else:
+                    values.append(np.nan)
+            
+            elif item_type == 'tissue':
+                if item_id in snapshot.get('tissues', {}):
+                    values.append(snapshot['tissues'][item_id].get(signal_name, np.nan))
+                else:
+                    values.append(np.nan)
+            
+            elif item_type == 'organ_system':
+                if item_id in snapshot.get('organ_systems', {}):
+                    values.append(snapshot['organ_systems'][item_id].get(signal_name, np.nan))
+                else:
+                    values.append(np.nan)
+            
+            elif item_type == 'organism':
+                values.append(snapshot.get('organism', {}).get(signal_name, np.nan))
         
         return np.array(times), np.array(values)
     
     @staticmethod
-    def summary_stats(state, entity_id, signal_name):
-        """Get summary statistics for a signal"""
-        times, values = HistoryAnalyzer.get_signal_timeseries(state, entity_id, signal_name)
+    def summary_stats(state, item_type, item_id, signal_name):
+        """
+        Get summary statistics for a signal
+        
+        Args:
+            state: SimulationState with history
+            item_type: 'entity', 'organ', 'tissue', or 'organism'
+            item_id: ID of the item (None for organism)
+            signal_name: Name of the signal
+        
+        Returns:
+            dict: Statistics (mean, std, min, max, final)
+        
+        Example:
+            stats = HistoryAnalyzer.summary_stats(state, 'entity', 'blood', 'glucose')
+            print(f"Mean glucose: {stats['mean']:.1f} mg/dL")
+        """
+        times, values = HistoryAnalyzer.get_signal_timeseries(
+            state, item_type, item_id, signal_name)
         
         return {
             'mean': np.nanmean(values),
@@ -244,21 +503,42 @@ def save_simulation(state, base_filename, formats=['json', 'csv']):
         HistoryLogger.save_pickle(state, f"{base_path}.pkl")
 
 
-def quick_plot(state, entity_id, signal_name, save_path=None):
-    """Quick plot of a single signal"""
+def quick_plot(state, item_type, item_id, signal_name, save_path=None):
+    """
+    Quick plot of a single signal
+    
+    Args:
+        state: SimulationState with history
+        item_type: 'entity', 'organ', 'tissue', or 'organism'
+        item_id: ID of the item (None for organism)
+        signal_name: Name of the signal
+        save_path: Where to save plot (optional)
+    
+    Example:
+        quick_plot(state, 'entity', 'blood', 'glucose', 'glucose.png')
+        quick_plot(state, 'organ', 'kidney', 'epo_production_capacity')
+    """
     try:
         import matplotlib.pyplot as plt
     except ImportError:
         print("ERROR: matplotlib not installed. Install with: pip install matplotlib")
         return
     
-    times, values = HistoryAnalyzer.get_signal_timeseries(state, entity_id, signal_name)
+    times, values = HistoryAnalyzer.get_signal_timeseries(
+        state, item_type, item_id, signal_name)
     
     plt.figure(figsize=(10, 6))
     plt.plot(times / 3600, values, linewidth=2)
     plt.xlabel('Time (hours)', fontsize=12)
-    plt.ylabel(f'{entity_id}.{signal_name}', fontsize=12)
-    plt.title(f'{entity_id}.{signal_name} over time', fontsize=14)
+    
+    # Build label
+    if item_type == 'organism':
+        label = f'organism.{signal_name}'
+    else:
+        label = f'{item_type}.{item_id}.{signal_name}'
+    
+    plt.ylabel(label, fontsize=12)
+    plt.title(f'{label} over time', fontsize=14)
     plt.grid(True, alpha=0.3)
     
     if save_path:
@@ -281,8 +561,17 @@ if __name__ == "__main__":
     print("save_simulation(state, 'results/my_simulation')")
     print("# Creates: my_simulation.json, my_simulation.csv")
     print()
-    print("# Quick plot:")
-    print("quick_plot(state, 'blood', 'glucose', 'results/glucose_plot.png')")
+    print("# Quick plots:")
+    print("quick_plot(state, 'entity', 'blood', 'glucose', 'results/glucose.png')")
+    print("quick_plot(state, 'organ', 'kidney', 'epo_production_capacity', 'results/epo.png')")
+    print()
+    print("# Save CSV with specific signals:")
+    print("signals = [")
+    print("    ('entity', 'blood', 'glucose'),")
+    print("    ('organ', 'kidney', 'epo_production_capacity'),")
+    print("    ('organism', None, 'age')")
+    print("]")
+    print("HistoryLogger.save_csv(state, 'custom.csv', signals=signals)")
     print()
     print("# Load later:")
     print("from utils.history import HistoryLogger")

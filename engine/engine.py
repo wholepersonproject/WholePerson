@@ -1,29 +1,58 @@
+import numpy as np
 from core.graph import DependencyGraph
 import pickle
 import warnings
 
 class PhysiologyEngine:
+    """
+    Multi-scale physiology simulation engine
+    
+    Features:
+    - Dynamic process registration/removal during simulation
+    - Automatic execution order computation based on dependencies
+    - Input/output validation with auto-creation
+    - Deletion queue system (safe, end-of-timestep deletion)
+    - Constraints & validation (min/max bounds, clamping)
+    - Checkpointing (save/load simulation state)
+    - Multi-timescale adaptive stepping
+    - Perturbation support
+    """
+    
     def __init__(self, state):
         self.state = state
-        self.state._engine = self  # Allow dynamic changes to access engine
+        self.state._engine = self
         self.models = {}
         self.graph = DependencyGraph()
         self.execution_order = []
         self.last_run_time = {}
         self.perturbation_manager = None
-        self._needs_reorder = False  # Track if we need to recompute execution order
-        self._deletion_queue = []  # General deletion queue
+        self._needs_reorder = True
         
-        # NEW: Events system
-        self._events = {}  # event_name -> (condition, action)
+        # Deletion queue system
+        self._deletion_queue = []
         
-        # NEW: Validation system
-        self._constraints = {}  # (entity_id, signal_name) -> (min, max, clamp, warn)
+        # Validation/constraints system
+        self._constraints = {}  # (entity_id, signal_name) -> {min, max, clamp, warn}
         
-        # NEW: Checkpointing
+        # Input/output validation
+        self.inactive_processes = {}  # process_id -> reason
+        
+        # Checkpointing
         self._checkpoint_counter = 0
     
+    # =========================================================================
+    # PROCESS REGISTRATION
+    # =========================================================================
+    
     def register_model(self, process_id, model, dependencies=None):
+        """
+        Register a process (can be called during simulation)
+        
+        Args:
+            process_id: Unique identifier
+            model: ProcessModel instance
+            dependencies: List of process_ids this depends on
+        """
         self.models[process_id] = model
         self.graph.add_process(process_id)
         self.last_run_time[process_id] = -model.timescale.value
@@ -32,23 +61,15 @@ class PhysiologyEngine:
             for dep in dependencies:
                 self.graph.add_dependency(dep, process_id)
         
-        self._needs_reorder = True  # Need to recompute order
-    
-    # =========================================================================
-    # DYNAMIC PROCESS MANAGEMENT (NEW!)
-    # =========================================================================
+        # Auto-create output signals if entity/organ exists
+        self._ensure_outputs_exist(model)
+        
+        self._needs_reorder = True
+        print(f"  ✓ Registered: {process_id}")
     
     def add_process(self, process_id, model, dependencies=None):
-        """
-        Add a process during runtime
-        
-        Args:
-            process_id: Unique identifier
-            model: ProcessModel instance
-            dependencies: List of process_ids this depends on
-        """
+        """Alias for register_model (for consistency)"""
         self.register_model(process_id, model, dependencies)
-        print(f"✓ Added process: {process_id}")
     
     def remove_process(self, process_id):
         """
@@ -62,8 +83,14 @@ class PhysiologyEngine:
             self.graph.remove_process(process_id)
             if process_id in self.last_run_time:
                 del self.last_run_time[process_id]
+            if process_id in self.inactive_processes:
+                del self.inactive_processes[process_id]
             self._needs_reorder = True
-            print(f"✓ Removed process: {process_id}")
+            print(f"  ✗ Unregistered: {process_id}")
+    
+    def unregister_model(self, process_id):
+        """Alias for remove_process (for consistency)"""
+        self.remove_process(process_id)
     
     def has_process(self, process_id):
         """Check if a process exists"""
@@ -73,12 +100,208 @@ class PhysiologyEngine:
         """Get a process by ID"""
         return self.models.get(process_id)
     
-    def list_processes(self):
-        """List all registered processes"""
+    def list_processes(self, active_only=False):
+        """
+        List all registered processes
+        
+        Args:
+            active_only: If True, only show processes that can currently run
+        
+        Returns:
+            list: Process IDs
+        """
+        if active_only:
+            return [p for p in self.execution_order if p not in self.inactive_processes]
         return list(self.models.keys())
     
+    def get_process_info(self, process_id):
+        """
+        Get detailed information about a process
+        
+        Args:
+            process_id: Process to inspect
+        
+        Returns:
+            dict: Process information including interface and status
+        """
+        if process_id not in self.models:
+            return None
+        
+        model = self.models[process_id]
+        can_run, missing_inputs = model.can_execute(self.state)
+        can_write, missing_outputs = model.validate_outputs(self.state)
+        
+        return {
+            'process_id': process_id,
+            'interface': model.get_interface(),
+            'can_execute': can_run,
+            'missing_inputs': missing_inputs,
+            'can_write': can_write,
+            'missing_outputs': missing_outputs,
+            'active': process_id not in self.inactive_processes,
+            'last_run': self.last_run_time.get(process_id)
+        }
+    
     # =========================================================================
-    # GENERAL DELETION SYSTEM
+    # OUTPUT AUTO-CREATION
+    # =========================================================================
+    
+    def _ensure_outputs_exist(self, model):
+        """
+        Ensure output signals exist in state (create with 0.0 if needed)
+        
+        This prevents silent failures when processes try to write to
+        non-existent signals. Signals are auto-created if the target
+        entity/organ/tissue exists.
+        
+        Uses smart lookup to find target in entities → organs → tissues
+        
+        Args:
+            model: ProcessModel instance
+        """
+        if not hasattr(model, 'outputs') or not model.outputs:
+            return
+        
+        for output_name, location in model.outputs.items():
+            if len(location) == 2:
+                # Smart lookup: ('blood', 'erythropoietin') or ('kidney', 'epo_capacity')
+                target_id, signal_name = location
+                
+                # Try entities first
+                if target_id in self.state.entities:
+                    entity = self.state.entities[target_id]
+                    
+                    if entity['representation'] == 'lumped':
+                        if signal_name not in entity['signals']:
+                            entity['signals'][signal_name] = 0.0
+                            print(f"  ℹ️  Created output signal: {target_id}.{signal_name}")
+                    
+                    elif entity['representation'] == 'spatial':
+                        if signal_name not in entity['signals']:
+                            shape = entity['shape']
+                            entity['signals'][signal_name] = np.zeros(shape, dtype=np.float32)
+                            print(f"  ℹ️  Created spatial output: {target_id}.{signal_name}")
+                    continue
+                
+                # Try organs second
+                if target_id in self.state.organs:
+                    organ = self.state.organs[target_id]
+                    
+                    if 'signals' not in organ:
+                        organ['signals'] = {}
+                    
+                    if signal_name not in organ['signals']:
+                        # Check if spatial organ
+                        if organ.get('representation') == 'spatial':
+                            shape = organ['shape']
+                            organ['signals'][signal_name] = np.zeros(shape, dtype=np.float32)
+                            print(f"  ℹ️  Created spatial organ output: {target_id}.{signal_name}")
+                        else:
+                            organ['signals'][signal_name] = 0.0
+                            print(f"  ℹ️  Created organ output: {target_id}.{signal_name}")
+                    continue
+                
+                # Try tissues third
+                if target_id in self.state.tissues:
+                    tissue = self.state.tissues[target_id]
+                    
+                    if 'signals' not in tissue:
+                        tissue['signals'] = {}
+                    
+                    if signal_name not in tissue['signals']:
+                        tissue['signals'][signal_name] = 0.0
+                        print(f"  ℹ️  Created tissue output: {target_id}.{signal_name}")
+                    continue
+                
+                # Not found anywhere
+                print(f"  ⚠️  Warning: Output target '{target_id}' not found for {model.process_id}")
+            
+            elif len(location) == 3 and location[2] == 'organism':
+                # Organism state: ('age', None, 'organism')
+                state_name = location[0]
+                # Organism states are set directly, don't need pre-creation
+                pass
+    
+    # =========================================================================
+    # EXECUTION ORDER & VALIDATION
+    # =========================================================================
+    
+    def _update_execution_order(self):
+        """
+        Recompute execution order and validate which processes can run
+        
+        This is called when:
+        - Simulation starts
+        - Processes are added/removed
+        - State structure changes (organs/entities added/removed)
+        """
+        self.execution_order = self.graph.topological_sort()
+        
+        # Check which processes can execute based on inputs and outputs
+        self.inactive_processes.clear()
+        for process_id in self.execution_order:
+            model = self.models[process_id]
+            
+            # Only validate if model has inputs/outputs declared
+            if hasattr(model, 'can_execute'):
+                can_run, missing_inputs = model.can_execute(self.state)
+                
+                if not can_run:
+                    self.inactive_processes[process_id] = f"missing inputs: {missing_inputs}"
+                    continue
+            
+            if hasattr(model, 'validate_outputs'):
+                can_write, missing_outputs = model.validate_outputs(self.state)
+                
+                if not can_write:
+                    self.inactive_processes[process_id] = f"missing output targets: {missing_outputs}"
+        
+        active_count = len(self.execution_order) - len(self.inactive_processes)
+        print(f"  ⟳ Execution order: {active_count}/{len(self.execution_order)} active")
+        
+        if self.inactive_processes:
+            print(f"  ⚠️  Inactive processes:")
+            for proc_id, reason in self.inactive_processes.items():
+                print(f"     {proc_id}: {reason}")
+        
+        self._needs_reorder = False
+    
+    def check_process_reactivation(self):
+        """
+        Check if any inactive processes can now run
+        
+        Called after each timestep to detect when:
+        - Missing organs/entities have been added
+        - Missing signals have been created
+        
+        Returns:
+            list: Process IDs that were reactivated
+        """
+        newly_active = []
+        
+        for process_id in list(self.inactive_processes.keys()):
+            model = self.models[process_id]
+            
+            can_run = True
+            can_write = True
+            
+            if hasattr(model, 'can_execute'):
+                can_run, _ = model.can_execute(self.state)
+            
+            if hasattr(model, 'validate_outputs'):
+                can_write, _ = model.validate_outputs(self.state)
+            
+            if can_run and can_write:
+                del self.inactive_processes[process_id]
+                newly_active.append(process_id)
+        
+        if newly_active:
+            print(f"  ✓ Reactivated: {newly_active}")
+        
+        return newly_active
+    
+    # =========================================================================
+    # DELETION QUEUE SYSTEM
     # =========================================================================
     
     def mark_for_deletion(self, item_type, *args):
@@ -133,18 +356,21 @@ class PhysiologyEngine:
                 entity_id = args[0]
                 if entity_id in self.state.entities:
                     del self.state.entities[entity_id]
+                    self._needs_reorder = True
             
             elif item_type == 'tissue':
                 # args = (tissue_id,)
                 tissue_id = args[0]
                 if tissue_id in self.state.tissues:
                     del self.state.tissues[tissue_id]
+                    self._needs_reorder = True
             
             elif item_type == 'organ':
                 # args = (organ_id,)
                 organ_id = args[0]
                 if organ_id in self.state.organs:
                     del self.state.organs[organ_id]
+                    self._needs_reorder = True
             
             elif item_type == 'process':
                 # args = (process_id,)
@@ -153,52 +379,6 @@ class PhysiologyEngine:
         
         # Clear queue
         self._deletion_queue.clear()
-    
-    # =========================================================================
-    # EVENTS & CALLBACKS SYSTEM
-    # =========================================================================
-    
-    def add_event(self, event_name, condition, action):
-        """
-        Add an event that triggers when condition is met
-        
-        Args:
-            event_name: Unique identifier for this event
-            condition: Function that takes (state) and returns bool
-            action: Function that takes (state, engine) and performs action
-        
-        Example:
-            engine.add_event('hypoglycemia',
-                condition=lambda s: s.get_signal('blood', 'glucose') < 40,
-                action=lambda s, e: trigger_counter_regulation(s, e))
-        """
-        self._events[event_name] = (condition, action)
-    
-    def remove_event(self, event_name):
-        """Remove an event"""
-        if event_name in self._events:
-            del self._events[event_name]
-    
-    def has_event(self, event_name):
-        """Check if event exists"""
-        return event_name in self._events
-    
-    def list_events(self):
-        """List all registered events"""
-        return list(self._events.keys())
-    
-    def _check_events(self):
-        """
-        Check all events and trigger actions if conditions met
-        
-        Called automatically after each timestep
-        """
-        for event_name, (condition, action) in self._events.items():
-            try:
-                if condition(self.state):
-                    action(self.state, self)
-            except Exception as e:
-                warnings.warn(f"Event '{event_name}' failed: {e}")
     
     # =========================================================================
     # VALIDATION & CONSTRAINTS SYSTEM
@@ -215,11 +395,14 @@ class PhysiologyEngine:
             min_val: Minimum allowed value (None = no minimum)
             max_val: Maximum allowed value (None = no maximum)
             clamp: If True, clamp values to bounds. If False, just warn.
-            warn: If True, print warnings when bounds violated
+            warn: If True, print warnings on violations
         
         Example:
-            engine.add_constraint('blood', 'glucose', min_val=0, max_val=500, 
-                                 clamp=True, warn=True)
+            # Glucose can't go negative
+            engine.add_constraint('blood', 'glucose', min_val=0, clamp=True)
+            
+            # Warn if glucose too high (don't clamp)
+            engine.add_constraint('blood', 'glucose', max_val=400, clamp=False, warn=True)
         """
         self._constraints[(entity_id, signal_name)] = {
             'min': min_val,
@@ -253,6 +436,9 @@ class PhysiologyEngine:
             try:
                 value = self.state.get_signal(entity_id, signal_name)
             except:
+                continue
+            
+            if value is None:
                 continue
             
             min_val = constraint['min']
@@ -306,9 +492,6 @@ class PhysiologyEngine:
         
         Example:
             engine.save_checkpoint('simulation_t1000.pkl')
-        
-        Note: Events with lambda functions cannot be saved.
-              Register events again after loading checkpoint.
         """
         if filename is None:
             filename = f"checkpoint_{self._checkpoint_counter:04d}.pkl"
@@ -327,15 +510,13 @@ class PhysiologyEngine:
             'checkpoint_counter': self._checkpoint_counter
         }
         
-        # Note: We skip events because they may contain unpicklable lambdas
-        # User should re-register events after loading
-        
         with open(filename, 'wb') as f:
             pickle.dump(checkpoint, f)
         
         # Reconnect engine
         self.state._engine = temp_engine
         
+        print(f"✓ Saved checkpoint: {filename}")
         return filename
     
     def load_checkpoint(self, filename):
@@ -347,9 +528,6 @@ class PhysiologyEngine:
         
         Example:
             engine.load_checkpoint('simulation_t1000.pkl')
-        
-        Note: Events are not saved in checkpoints.
-              Re-register events after loading if needed.
         """
         with open(filename, 'rb') as f:
             checkpoint = pickle.load(f)
@@ -362,33 +540,42 @@ class PhysiologyEngine:
         self._constraints = checkpoint.get('constraints', {})
         self._checkpoint_counter = checkpoint.get('checkpoint_counter', 0)
         
-        # Events are not saved (may contain unpicklable lambdas)
-        # User should re-register events after loading
-        self._events = {}
-        
         # Rebuild graph from models
         self.graph = DependencyGraph()
         for process_id in self.models:
             self.graph.add_process(process_id)
         
         self._needs_reorder = True
+        
+        print(f"✓ Loaded checkpoint: {filename}")
+    
+    # =========================================================================
+    # PERTURBATION MANAGEMENT
+    # =========================================================================
+    
+    def set_perturbation_manager(self, manager):
+        """Set the perturbation manager"""
+        self.perturbation_manager = manager
     
     # =========================================================================
     # EXECUTION
     # =========================================================================
     
-    def set_perturbation_manager(self, manager):
-        self.perturbation_manager = manager
-    
     def should_run(self, process_id, timescale):
+        """Check if a process should run based on its timescale"""
         last_run = self.last_run_time.get(process_id, self.state.time - timescale.value)
         return (self.state.time - last_run) >= (timescale.value - 0.5)
     
     def step(self, global_dt=60.0):
-        # Recompute execution order if needed (after add/remove)
+        """
+        Execute one timestep
+        
+        Args:
+            global_dt: Timestep in seconds
+        """
+        # Recompute execution order if needed (after add/remove or state changes)
         if self._needs_reorder:
-            self.execution_order = self.graph.topological_sort()
-            self._needs_reorder = False
+            self._update_execution_order()
         
         # 1. Apply perturbations first (can modify model params)
         if self.perturbation_manager:
@@ -396,7 +583,11 @@ class PhysiologyEngine:
         
         # 2. Execute processes in dependency order
         for process_id in self.execution_order:
-            if process_id not in self.models:  # Skip if removed
+            # Skip if removed or inactive
+            if process_id not in self.models:
+                continue
+            
+            if process_id in self.inactive_processes:
                 continue
             
             model = self.models[process_id]
@@ -404,11 +595,11 @@ class PhysiologyEngine:
                 model.step(self.state, model.timescale.value)
                 self.last_run_time[process_id] = self.state.time
         
-        # 3. Validate state (check constraints)
-        self._validate_state()
+        # 3. Check if inactive processes can now run
+        self.check_process_reactivation()
         
-        # 4. Check events (trigger actions if conditions met)
-        self._check_events()
+        # 4. Validate state (check constraints)
+        self._validate_state()
         
         # 5. Apply all pending deletions
         self._apply_deletions()
@@ -416,29 +607,49 @@ class PhysiologyEngine:
         # 6. Advance time
         self.state.time += global_dt
     
-    def run(self, duration_seconds, global_dt=60.0, record_interval=300):
-        self.execution_order = self.graph.topological_sort()
-        target_time = self.state.time + duration_seconds
-        last_record = 0
+    def run(self, duration_seconds, global_dt=60.0, record_interval=300, 
+            perturbation_manager=None):
+        """
+        Run simulation
         
-        print(f"Running simulation: {duration_seconds/3600:.1f}h")
-        print()
+        Args:
+            duration_seconds: How long to simulate (in seconds)
+            global_dt: Base timestep (in seconds)
+            record_interval: How often to save history snapshots (in seconds)
+            perturbation_manager: Optional PerturbationManager
+        
+        Example:
+            engine.run(duration_seconds=24*3600, global_dt=60.0, record_interval=300)
+        """
+        # Set perturbation manager if provided
+        if perturbation_manager:
+            self.perturbation_manager = perturbation_manager
+        
+        # Initial setup
+        if self._needs_reorder:
+            self._update_execution_order()
+        
+        target_time = self.state.time + duration_seconds
+        last_record = self.state.time
+        
+        print(f"\nSimulation: {duration_seconds/3600:.1f}h @ dt={global_dt}s")
+        print(f"Processes: {len(self.execution_order)}")
+        if self.perturbation_manager:
+            print(f"Perturbations: {len(self.perturbation_manager.perturbations)}")
+        print("="*70)
         
         while self.state.time < target_time:
             self.step(global_dt)
             
+            # Record history
             if self.state.time - last_record >= record_interval:
                 self.state.record_history()
                 last_record = self.state.time
-            
-            if int(self.state.time) % 3600 == 0:
-                hours = int(self.state.time / 3600)
-                glucose = self.state.get_signal('blood', 'glucose')
-                insulin = self.state.get_signal('blood', 'insulin')
-                pp = self.state.get_signal('blood', 'pancreatic_polypeptide')
-                fed_status = self.state.get_organism_state('fed_status', 'unknown')
-                print(f"  {hours}h: glucose={glucose:.1f} mg/dL, "
-                      f"insulin={insulin:.1f} µU/mL, PP={pp:.1f} pg/mL, status={fed_status}")
         
+        # Final snapshot
         self.state.record_history()
-        print()
+        
+        elapsed = self.state.time - (target_time - duration_seconds)
+        print(f"\n✓ Simulation complete: {elapsed/3600:.1f}h")
+        print(f"  Final time: {self.state.time/3600:.1f}h")
+        print(f"  History: {len(self.state.history)} snapshots")

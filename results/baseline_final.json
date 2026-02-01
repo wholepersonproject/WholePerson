@@ -1,0 +1,65 @@
+{
+  "time": 1800000.0,
+  "organism": {
+    "fed_status": "fasted",
+    "exercise_intensity": 0.0,
+    "body_position": "standing",
+    "heart_rate": 70.0,
+    "age_years": 30.0,
+    "tissue_oxygen_saturation": 100.0,
+    "cardiac_output": 5.0
+  },
+  "entities": {
+    "blood": {
+      "glucose": 23.138816833496094,
+      "insulin": 111.49029541015625,
+      "glucagon": 67.38636016845703,
+      "oxygen": 80.0,
+      "lactate": 1.0,
+      "pancreatic_polypeptide": 10,
+      "rbc_count": 7971722.5,
+      "hemoglobin": 18.04327392578125,
+      "erythropoietin": 74.43255615234375
+    }
+  },
+  "organs": {
+    "bone_marrow": {
+      "erythropoiesis_capacity": 1.0
+    },
+    "kidney": {
+      "epo_production_capacity": 0.9499998688697815,
+      "functional_mass": 1.0
+    },
+    "liver": {
+      "glucose": 29.633153915405273,
+      "glycogen": 50.0,
+      "insulin": 8.781255722045898,
+      "glucagon": 9.596088409423828
+    },
+    "pancreas": {
+      "glucose": 25.264772415161133,
+      "insulin": 166.80101013183594,
+      "glucagon": 82.04594421386719
+    },
+    "brain": {
+      "glucose": 25.36781120300293,
+      "oxygen": 80.0000000000008
+    },
+    "heart": {
+      "glucose": 25.251855850219727,
+      "oxygen": 80.00000000000051
+    }
+  },
+  "tissues": {
+    "muscle_tissue": {
+      "glucose": 29.803985595703125,
+      "glycogen": 15.0,
+      "insulin": 9.672430038452148
+    },
+    "adipose_tissue": {
+      "glucose": 37.14338302612305,
+      "free_fatty_acids": 0.4,
+      "insulin": 2.0785129070281982
+    }
+  }
+}
