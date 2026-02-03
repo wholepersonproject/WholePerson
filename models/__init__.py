@@ -1,5 +1,5 @@
-from .base import ProcessModel, TimeScale
+from models.base import ProcessModel, TimeScale
 
-from .physiology import * 
+from models.endocrine import * 
 
 __all__ = ['ProcessModel', 'TimeScale']

@@ -48,12 +48,12 @@
   },
   "tissues": {
     "muscle_tissue": {
-      "glucose": 1154.4300686243246,
+      "glucose": 263.07741650331695,
       "glycogen": 15.0,
       "insulin": 5.0
     },
     "adipose_tissue": {
-      "glucose": 898.4842072633754,
+      "glucose": 299.2288256371162,
       "free_fatty_acids": 0.4,
       "insulin": 5.0
     }

@@ -328,6 +328,8 @@ organism:
   fed_status: fasted
   exercise_intensity: 0.0
   body_position: standing
+  age: 20
+  sex: male 
   heart_rate:
     initial: 70.0
     unit: bpm
