@@ -26,6 +26,77 @@ class SimulationState:
         self.history = []
         self._engine = None  # Set by engine for dynamic changes
         self.events = []     # Track major state changes
+        
+        # NEW: Constraint system
+        self._constraints = {}  # (entity_id, signal_name) -> {min, max, warn_below, warn_above}
+        self.enforce_constraints = True  # ← ADD THIS LINE (default: enabled)
+
+    
+    # =========================================================================
+    # CONSTRAINT MANAGEMENT (NEW)
+    # =========================================================================
+    
+    def add_constraint(self, entity_id, signal_name, **kwargs):
+        """
+        Add constraint to a signal
+        
+        Args:
+            entity_id: 'blood', 'liver', 'organism', etc.
+            signal_name: 'glucose', 'insulin', etc.
+            **kwargs: Constraint parameters
+                - min: Hard minimum (will clamp)
+                - max: Hard maximum (will clamp)
+                - warn_below: Warning threshold (low)
+                - warn_above: Warning threshold (high)
+                - unit: Unit of measurement (documentation)
+        """
+        key = (entity_id, signal_name)
+        self._constraints[key] = kwargs
+    
+    def _apply_constraint(self, entity_id, signal_name, value):
+        """
+        Apply constraints to a value
+        
+        Returns:
+            Constrained value (clamped if needed)
+        """
+        # ← ADD THIS CHECK AT THE TOP
+        if not self.enforce_constraints:
+            return value  # Skip all constraint logic
+
+        key = (entity_id, signal_name)
+        if key not in self._constraints:
+            return value
+        
+        constraint = self._constraints[key]
+        original_value = value
+        
+        # Clamp to hard bounds
+        if 'min' in constraint and value < constraint['min']:
+            value = constraint['min']
+            if abs(original_value - value) > 0.01:  # Avoid spam for tiny violations
+                print(f"  ⚠️  Clamped {entity_id}.{signal_name} = {original_value:.2f} → {value:.2f} (min: {constraint['min']})")
+        
+        if 'max' in constraint and value > constraint['max']:
+            value = constraint['max']
+            if abs(original_value - value) > 0.01:
+                print(f"  ⚠️  Clamped {entity_id}.{signal_name} = {original_value:.2f} → {value:.2f} (max: {constraint['max']})")
+        
+        # Warn if crossing thresholds (but don't clamp)
+        if 'warn_below' in constraint and value < constraint['warn_below']:
+            if original_value >= constraint['warn_below']:  # Just crossed
+                print(f"  ⚠️  WARNING: {entity_id}.{signal_name} = {value:.2f} below threshold {constraint['warn_below']}")
+        
+        if 'warn_above' in constraint and value > constraint['warn_above']:
+            if original_value <= constraint['warn_above']:  # Just crossed
+                print(f"  ⚠️  WARNING: {entity_id}.{signal_name} = {value:.2f} above threshold {constraint['warn_above']}")
+        
+        return value
+    
+    def get_constraint_info(self, entity_id, signal_name):
+        """Get constraint metadata for a signal"""
+        key = (entity_id, signal_name)
+        return self._constraints.get(key)
     
     # =========================================================================
     # TISSUE MANAGEMENT
@@ -35,11 +106,6 @@ class SimulationState:
         """
         Add a tissue (collection of similar cells)
         STRUCTURAL CHANGE - triggers execution order update
-        
-        Args:
-            tissue_id: Unique identifier (e.g., 'cardiac_muscle')
-            tissue_type: Type of tissue (e.g., 'muscle', 'epithelial', 'connective')
-            **kwargs: Additional properties (signals, cell_types, etc.)
         """
         self.tissues[tissue_id] = {
             'type': tissue_type,
@@ -48,22 +114,17 @@ class SimulationState:
             **kwargs
         }
         
-        # Trigger engine update (STRUCTURAL change)
         if self._engine:
             self._engine.needs_reorder = True
     
     def remove_tissue(self, tissue_id, reason=""):
-        """
-        Remove a tissue
-        STRUCTURAL CHANGE - triggers execution order update
-        """
+        """Remove a tissue"""
         if tissue_id not in self.tissues:
             return False
         
         del self.tissues[tissue_id]
         self._record_event('tissue_removed', f"Removed tissue '{tissue_id}': {reason}")
         
-        # Trigger engine update (STRUCTURAL change)
         if self._engine:
             self._engine.needs_reorder = True
         
@@ -76,10 +137,7 @@ class SimulationState:
         return self.tissues[tissue_id].get('signals', {}).get(state_name, default)
     
     def set_tissue_state(self, tissue_id, state_name, value):
-        """
-        Set state for a tissue
-        VALUE CHANGE - does NOT trigger reorder
-        """
+        """Set state for a tissue (VALUE CHANGE)"""
         if tissue_id not in self.tissues:
             print(f"⚠️  Warning: Trying to set state '{state_name}' on non-existent tissue '{tissue_id}'")
             return
@@ -90,23 +148,17 @@ class SimulationState:
         if state_name not in self.tissues[tissue_id]['signals']:
             print(f"ℹ️  Auto-creating signal '{state_name}' in tissue '{tissue_id}'")
         
+        # NEW: Apply constraints
+        value = self._apply_constraint(tissue_id, state_name, value)
+        
         self.tissues[tissue_id]['signals'][state_name] = value
-        # No reorder - just a value change
     
     # =========================================================================
     # ORGAN MANAGEMENT
     # =========================================================================
     
     def add_organ(self, organ_id, organ_type, **kwargs):
-        """
-        Add an organ (collection of tissues)
-        STRUCTURAL CHANGE - triggers execution order update
-        
-        Args:
-            organ_id: Unique identifier (e.g., 'heart', 'liver', 'kidney')
-            organ_type: Type of organ
-            **kwargs: Additional properties (signals, tissues, mass, etc.)
-        """
+        """Add an organ (STRUCTURAL CHANGE)"""
         self.organs[organ_id] = {
             'type': organ_type,
             'signals': kwargs.get('signals', {}),
@@ -117,22 +169,17 @@ class SimulationState:
         
         self._record_event('organ_added', f"Added organ '{organ_id}'")
         
-        # Trigger engine update (STRUCTURAL change)
         if self._engine:
             self._engine.needs_reorder = True
     
     def remove_organ(self, organ_id, reason=""):
-        """
-        Remove an organ (failure, surgical removal)
-        STRUCTURAL CHANGE - triggers execution order update
-        """
+        """Remove an organ"""
         if organ_id not in self.organs:
             return False
         
         del self.organs[organ_id]
         self._record_event('organ_removed', f"Removed organ '{organ_id}': {reason}")
         
-        # Trigger engine update (STRUCTURAL change)
         if self._engine:
             self._engine.needs_reorder = True
         
@@ -145,10 +192,7 @@ class SimulationState:
         return self.organs[organ_id].get('signals', {}).get(state_name, default)
     
     def set_organ_state(self, organ_id, state_name, value):
-        """
-        Set state for an organ
-        VALUE CHANGE - does NOT trigger reorder
-        """
+        """Set state for an organ (VALUE CHANGE)"""
         if organ_id not in self.organs:
             print(f"⚠️  Warning: Trying to set state '{state_name}' on non-existent organ '{organ_id}'")
             return
@@ -159,18 +203,17 @@ class SimulationState:
         if state_name not in self.organs[organ_id]['signals']:
             print(f"ℹ️  Auto-creating signal '{state_name}' in organ '{organ_id}'")
         
+        # NEW: Apply constraints
+        value = self._apply_constraint(organ_id, state_name, value)
+        
         self.organs[organ_id]['signals'][state_name] = value
-        # No reorder - just a value change
     
     # =========================================================================
     # ENTITY MANAGEMENT
     # =========================================================================
     
     def add_entity(self, entity_id, entity_type, representation, **kwargs):
-        """
-        Add an entity
-        STRUCTURAL CHANGE - triggers execution order update
-        """
+        """Add an entity (STRUCTURAL CHANGE)"""
         self.entities[entity_id] = {
             'type': entity_type,
             'representation': representation,
@@ -196,22 +239,17 @@ class SimulationState:
             self.entities[entity_id]['count'] = kwargs.get('count', 0)
             self.entities[entity_id]['agents'] = []
         
-        # Trigger engine update (STRUCTURAL change)
         if self._engine:
             self._engine.needs_reorder = True
     
     def remove_entity(self, entity_id, reason=""):
-        """
-        Remove an entity (amputation, cell death, tissue loss)
-        STRUCTURAL CHANGE - triggers execution order update
-        """
+        """Remove an entity (STRUCTURAL CHANGE)"""
         if entity_id not in self.entities:
             return False
         
         del self.entities[entity_id]
         self._record_event('entity_removed', f"Removed entity '{entity_id}': {reason}")
         
-        # Trigger engine update (STRUCTURAL change)
         if self._engine:
             self._engine.needs_reorder = True
         
@@ -225,10 +263,9 @@ class SimulationState:
             'rate': rate,
             'type': flow_type
         }
-        # Flows don't typically affect process execution, so no reorder
     
     def remove_flow(self, flow_id, reason=""):
-        """Remove a flow (vascular occlusion, etc.)"""
+        """Remove a flow"""
         if flow_id not in self.flows:
             return False
         
@@ -245,8 +282,6 @@ class SimulationState:
         """
         Get signal value with smart lookup
         Searches: entities → organs → tissues
-        Handles lumped and spatial representations
-        READ operation - does NOT trigger reorder
         """
         # Try entities first
         if id in self.entities:
@@ -264,7 +299,7 @@ class SimulationState:
                 return np.mean(values) if values else 0.0
             return 0.0
         
-        # Try organs second (can also be spatial!)
+        # Try organs second
         if id in self.organs:
             organ = self.organs[id]
             rep = organ.get('representation', 'lumped')
@@ -280,16 +315,10 @@ class SimulationState:
         if id in self.tissues:
             return self.tissues[id].get('signals', {}).get(signal_name, 0.0)
         
-        # Not found anywhere
         return None
     
     def update_signal(self, id, signal_name, delta):
-        """
-        Update signal value by delta with smart lookup
-        Searches: entities → organs → tissues
-        Handles lumped and spatial representations
-        VALUE CHANGE - does NOT trigger reorder
-        """
+        """Update signal value by delta with smart lookup"""
         # Try entities first
         if id in self.entities:
             entity = self.entities[id]
@@ -299,7 +328,9 @@ class SimulationState:
                 current = entity['signals'].get(signal_name, 0.0)
                 if signal_name not in entity['signals']:
                     print(f"ℹ️  Auto-creating signal '{signal_name}' in entity '{id}'")
-                entity['signals'][signal_name] = current + delta
+                # NEW: Apply constraints
+                new_value = self._apply_constraint(id, signal_name, current + delta)
+                entity['signals'][signal_name] = new_value
             elif rep == 'spatial':
                 if signal_name in entity['signals']:
                     entity['signals'][signal_name] += delta
@@ -311,7 +342,7 @@ class SimulationState:
                     agent['state'][signal_name] = current + delta
             return
         
-        # Try organs second (can also be spatial!)
+        # Try organs second
         if id in self.organs:
             organ = self.organs[id]
             rep = organ.get('representation', 'lumped')
@@ -322,7 +353,9 @@ class SimulationState:
                 current = organ['signals'].get(signal_name, 0.0)
                 if signal_name not in organ['signals']:
                     print(f"ℹ️  Auto-creating signal '{signal_name}' in organ '{id}'")
-                organ['signals'][signal_name] = current + delta
+                # NEW: Apply constraints
+                new_value = self._apply_constraint(id, signal_name, current + delta)
+                organ['signals'][signal_name] = new_value
             elif rep == 'spatial':
                 if 'signals' not in organ:
                     organ['signals'] = {}
@@ -339,19 +372,18 @@ class SimulationState:
             current = self.tissues[id]['signals'].get(signal_name, 0.0)
             if signal_name not in self.tissues[id]['signals']:
                 print(f"ℹ️  Auto-creating signal '{signal_name}' in tissue '{id}'")
-            self.tissues[id]['signals'][signal_name] = current + delta
+            # NEW: Apply constraints
+            new_value = self._apply_constraint(id, signal_name, current + delta)
+            self.tissues[id]['signals'][signal_name] = new_value
             return
         
-        # Not found anywhere
         print(f"⚠️  Warning: Cannot update signal '{signal_name}' - '{id}' not found")
     
     def set_signal(self, id, signal_name, value):
-        """
-        Set signal value with smart lookup
-        Searches: entities → organs → tissues
-        Handles lumped and spatial representations
-        VALUE CHANGE - does NOT trigger reorder
-        """
+        """Set signal value with smart lookup"""
+        # NEW: Apply constraints
+        value = self._apply_constraint(id, signal_name, value)
+        
         # Try entities first
         if id in self.entities:
             entity = self.entities[id]
@@ -371,7 +403,7 @@ class SimulationState:
                     agent['state'][signal_name] = value
             return
         
-        # Try organs second (can also be spatial!)
+        # Try organs second
         if id in self.organs:
             organ = self.organs[id]
             rep = organ.get('representation', 'lumped')
@@ -400,7 +432,6 @@ class SimulationState:
             self.tissues[id]['signals'][signal_name] = value
             return
         
-        # Not found anywhere
         print(f"⚠️  Warning: Cannot set signal '{signal_name}' - '{id}' not found")
     
     # =========================================================================
@@ -493,7 +524,9 @@ class SimulationState:
     # =========================================================================
     
     def set_organism_state(self, state_name, value):
-        """Set organism-level state (VALUE change, no reorder)"""
+        """Set organism-level state with constraints"""
+        # NEW: Apply constraints
+        value = self._apply_constraint('organism', state_name, value)
         self.organism[state_name] = value
     
     def get_organism_state(self, state_name, default=None):
@@ -505,7 +538,7 @@ class SimulationState:
     # =========================================================================
     
     def set_system_state(self, system_name, state_name, value):
-        """Set state for an organ system (VALUE change, no reorder)"""
+        """Set state for an organ system"""
         if system_name not in self.organ_systems:
             self.organ_systems[system_name] = {}
         self.organ_systems[system_name][state_name] = value
@@ -546,7 +579,7 @@ class SimulationState:
         return self.events.copy()
     
     # =========================================================================
-    # STATE VALIDATION (checks if inputs/outputs exist)
+    # STATE VALIDATION
     # =========================================================================
     
     def has_entity_signal(self, entity_id, signal_name):
@@ -559,7 +592,6 @@ class SimulationState:
         if rep in ['lumped', 'spatial']:
             return signal_name in entity.get('signals', {})
         elif rep == 'agents':
-            # For agents, check if at least one agent has the signal
             agents = entity.get('agents', [])
             return len(agents) > 0 and any(signal_name in a.get('state', {}) for a in agents)
         
@@ -601,14 +633,13 @@ class SimulationState:
         for tissue_id, tissue in self.tissues.items():
             snapshot['tissues'][tissue_id] = tissue.get('signals', {}).copy()
         
-        # Copy organ states (handle spatial organs)
+        # Copy organ states
         for organ_id, organ in self.organs.items():
             rep = organ.get('representation', 'lumped')
             
             if rep == 'lumped':
                 snapshot['organs'][organ_id] = organ.get('signals', {}).copy()
             elif rep == 'spatial':
-                # Average spatial fields for history
                 snapshot['organs'][organ_id] = {}
                 for signal_name, field in organ.get('signals', {}).items():
                     if isinstance(field, np.ndarray):

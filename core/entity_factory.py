@@ -3,13 +3,17 @@ import numpy as np
 from importlib import import_module
 
 class EntityFactory:
+    """Factory for building simulation entities from configuration"""
+    
     def __init__(self, schema_path):
         with open(schema_path, 'r') as f:
             self.schema = yaml.safe_load(f)
     
     def initialize_simulation_state(self, state):
-        """Initialize state from anatomy schema"""
-        
+        """
+        Initialize state from anatomy schema
+        NEW: Also extracts and registers constraints from signal definitions
+        """
         # Create organs first (they may be referenced by entities)
         for organ_id, config in self.schema.get('organs', {}).items():
             self._create_organ(state, organ_id, config)
@@ -33,14 +37,22 @@ class EntityFactory:
             )
         
         # Set organism state
-        for state_name, value in self.schema.get('organism', {}).items():
-            state.set_organism_state(state_name, value)
+        for state_name, state_config in self.schema.get('organism', {}).items():
+            if isinstance(state_config, dict):
+                # New format with constraints
+                state.set_organism_state(state_name, state_config.get('initial', 0.0))
+                self._register_constraint(state, 'organism', state_name, state_config)
+            else:
+                # Old format (just a value)
+                state.set_organism_state(state_name, state_config)
         
         print(f"✓ Initialized:")
         print(f"  Entities: {len(state.entities)}")
         print(f"  Organs: {len(state.organs)}")
         print(f"  Tissues: {len(state.tissues)}")
         print(f"  Flows: {len(state.flows)}")
+        if hasattr(state, '_constraints'):
+            print(f"  Constraints: {len(state._constraints)}")
     
     def _create_organ(self, state, organ_id, config):
         """Create an organ in state.organs (can be lumped or spatial)"""
@@ -48,21 +60,41 @@ class EntityFactory:
         organ_system = config.get('organ_system', 'unknown')
         
         if representation == 'lumped':
+            # Extract signals and constraints
+            signals = {}
+            for signal_name, signal_config in config.get('signals', {}).items():
+                if isinstance(signal_config, dict):
+                    # New format with metadata
+                    signals[signal_name] = signal_config.get('initial', 0.0)
+                    self._register_constraint(state, organ_id, signal_name, signal_config)
+                else:
+                    # Old format (just a value)
+                    signals[signal_name] = signal_config
+            
             state.add_organ(
                 organ_id,
-                organ_system,  # This is organ_type parameter
+                organ_system,
                 representation=representation,
                 spatial_type=config.get('spatial_type', 'localized'),
                 position=config.get('position'),
                 volume=config.get('volume', 1.0),
-                signals=config.get('signals', {})
+                signals=signals
             )
         
         elif representation == 'spatial':
             # Convert scalar signals to spatial fields
             shape = tuple(config['shape'])
             spatial_signals = {}
-            for signal_name, value in config.get('signals', {}).items():
+            
+            for signal_name, signal_config in config.get('signals', {}).items():
+                if isinstance(signal_config, dict):
+                    # New format with metadata
+                    value = signal_config.get('initial', 0.0)
+                    self._register_constraint(state, organ_id, signal_name, signal_config)
+                else:
+                    # Old format
+                    value = signal_config
+                
                 if isinstance(value, (int, float)):
                     # Convert scalar to uniform field
                     spatial_signals[signal_name] = np.full(shape, value, dtype=np.float32)
@@ -72,7 +104,7 @@ class EntityFactory:
             
             state.add_organ(
                 organ_id,
-                organ_system,  # This is organ_type parameter
+                organ_system,
                 representation=representation,
                 spatial_type=config.get('spatial_type', 'localized'),
                 position=config.get('position'),
@@ -84,12 +116,21 @@ class EntityFactory:
     
     def _create_tissue(self, state, tissue_id, config):
         """Create a tissue in state.tissues"""
-        tissue_type = config.get('type', 'generic')  # Default to 'generic' if not specified
+        tissue_type = config.get('type', 'generic')
+        
+        # Extract signals and constraints
+        signals = {}
+        for signal_name, signal_config in config.get('signals', {}).items():
+            if isinstance(signal_config, dict):
+                signals[signal_name] = signal_config.get('initial', 0.0)
+                self._register_constraint(state, tissue_id, signal_name, signal_config)
+            else:
+                signals[signal_name] = signal_config
         
         state.add_tissue(
             tissue_id,
             tissue_type,
-            signals=config.get('signals', {})
+            signals=signals
         )
     
     def _create_entity(self, state, entity_id, config):
@@ -99,6 +140,15 @@ class EntityFactory:
         spatial_type = config.get('spatial_type', 'localized')
         
         if representation == 'lumped':
+            # Extract signals and constraints
+            signals = {}
+            for signal_name, signal_config in config.get('signals', {}).items():
+                if isinstance(signal_config, dict):
+                    signals[signal_name] = signal_config.get('initial', 0.0)
+                    self._register_constraint(state, entity_id, signal_name, signal_config)
+                else:
+                    signals[signal_name] = signal_config
+            
             state.add_entity(
                 entity_id,
                 entity_type,
@@ -106,10 +156,19 @@ class EntityFactory:
                 spatial_type=spatial_type,
                 position=config.get('position'),
                 volume=config.get('volume', 1.0),
-                signals=config.get('signals', {})
+                signals=signals
             )
         
         elif representation == 'spatial':
+            # Extract signals and constraints
+            signals = {}
+            for signal_name, signal_config in config.get('signals', {}).items():
+                if isinstance(signal_config, dict):
+                    signals[signal_name] = signal_config.get('initial', 0.0)
+                    self._register_constraint(state, entity_id, signal_name, signal_config)
+                else:
+                    signals[signal_name] = signal_config
+            
             state.add_entity(
                 entity_id,
                 entity_type,
@@ -119,7 +178,7 @@ class EntityFactory:
                 shape=tuple(config['shape']),
                 dx=config.get('dx', 1.0),
                 volume=config.get('volume', 1.0),
-                signals=config.get('signals', {})
+                signals=signals
             )
         
         elif representation == 'agents':
@@ -170,9 +229,42 @@ class EntityFactory:
                 return tuple(np.random.randint(0, dim) for dim in shape)
         
         return None
+    
+    def _register_constraint(self, state, target_id, signal_name, config):
+        """
+        Extract and register constraint from signal config
+        NEW method for constraint extraction
+        
+        Args:
+            state: SimulationState object
+            target_id: Entity/organ/tissue/organism ID
+            signal_name: Signal name
+            config: Signal configuration dict
+        """
+        # Only register if state has constraint system
+        if not hasattr(state, 'add_constraint'):
+            return
+        
+        constraint = {}
+        
+        if 'min' in config:
+            constraint['min'] = config['min']
+        if 'max' in config:
+            constraint['max'] = config['max']
+        if 'warn_below' in config:
+            constraint['warn_below'] = config['warn_below']
+        if 'warn_above' in config:
+            constraint['warn_above'] = config['warn_above']
+        if 'unit' in config:
+            constraint['unit'] = config['unit']
+        
+        if constraint:
+            state.add_constraint(target_id, signal_name, **constraint)
 
 
 class ProcessLoader:
+    """Load physiological processes from registry configuration"""
+    
     def __init__(self, registry_path):
         with open(registry_path, 'r') as f:
             self.registry = yaml.safe_load(f)

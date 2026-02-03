@@ -2,12 +2,40 @@ import numpy as np
 from models.base import ProcessModel, TimeScale
 
 class InsulinSecretion(ProcessModel):
+    """
+    Beta-cell insulin secretion in response to glucose
+    
+    Mechanism: Sigmoidal (Hill) dose-response
+    Timescale: Minutes
+    Location: Pancreatic beta cells
+    """
+    
     inputs = {
-        'glucose': ('pancreas', 'glucose')
+        'glucose': ('blood', 'glucose')  # ← CHANGED: Read from blood
     }
     outputs = {
-        'blood_insulin': ('blood', 'insulin'),
-        'pancreas_insulin': ('pancreas', 'insulin')
+        'blood_insulin': ('blood', 'insulin')
+    }
+    
+    parameters = {
+        'glucose_sensitivity': {
+            'default': 1.0,
+            'unit': 'dimensionless',
+            'range': (0.3, 2.0),
+            'description': 'Beta-cell responsiveness; 1.0=normal, <0.5=insulin resistant, >1.5=highly sensitive'
+        },
+        'basal_secretion': {
+            'default': 5.0,
+            'unit': 'µU/mL/min',
+            'range': (2.0, 10.0),
+            'description': 'Fasting insulin secretion rate'
+        },
+        'max_secretion': {
+            'default': 150.0,
+            'unit': 'µU/mL/min',
+            'range': (50.0, 250.0),
+            'description': 'Maximum glucose-stimulated secretion'
+        }
     }
     
     def __init__(self, glucose_sensitivity=1.0, basal_secretion=5.0, max_secretion=150.0):
@@ -17,26 +45,41 @@ class InsulinSecretion(ProcessModel):
         self.max_secretion = max_secretion
     
     def step(self, state, dt):
-        glucose = state.get_signal('pancreas', 'glucose')
+        glucose = state.get_signal('blood', 'glucose')  # ← CHANGED: From blood
         
-        K = 90.0
-        n = 1.7
+        K = 90.0  # mg/dL - half-maximal glucose
+        n = 1.7   # Hill coefficient
+        
         stimulated = (self.max_secretion - self.basal_secretion) * \
                      (glucose**n) / (K**n + glucose**n)
         secretion_rate = self.basal_secretion + stimulated * self.glucose_sensitivity
         
         state.update_signal('blood', 'insulin', secretion_rate * (dt/60.0))
-        state.update_signal('pancreas', 'insulin', secretion_rate * 1.5 * (dt/60.0))
 
 
 class GlucagonSecretion(ProcessModel):
+    """
+    Alpha-cell glucagon secretion
+    
+    Mechanism: Inverse glucose response with insulin inhibition
+    Timescale: Minutes
+    """
+    
     inputs = {
         'glucose': ('blood', 'glucose'),
         'insulin': ('blood', 'insulin')
     }
     outputs = {
-        'blood_glucagon': ('blood', 'glucagon'),
-        'pancreas_glucagon': ('pancreas', 'glucagon')
+        'blood_glucagon': ('blood', 'glucagon')
+    }
+    
+    parameters = {
+        'basal_secretion': {
+            'default': 60.0,
+            'unit': 'pg/mL/min',
+            'range': (40.0, 100.0),
+            'description': 'Baseline alpha-cell secretion'
+        }
     }
     
     def __init__(self, basal_secretion=60.0):
@@ -52,11 +95,30 @@ class GlucagonSecretion(ProcessModel):
         secretion_rate = self.basal_secretion * glucose_factor * insulin_inhibition
         
         state.update_signal('blood', 'glucagon', secretion_rate * (dt/60.0))
-        state.update_signal('pancreas', 'glucagon', secretion_rate * 1.2 * (dt/60.0))
 
 
 class GlucoseUptake(ProcessModel):
-    # Note: inputs/outputs set in __init__ because target_entity varies
+    """
+    Insulin-mediated glucose uptake by tissues
+    
+    Mechanism: Basal + insulin-stimulated GLUT4 transport
+    Timescale: Minutes
+    """
+    
+    parameters = {
+        'basal_rate': {
+            'default': 0.1,
+            'unit': 'mg/dL/min',
+            'range': (0.005, 0.5),
+            'description': 'Insulin-independent glucose uptake'
+        },
+        'insulin_sensitivity': {
+            'default': 1.0,
+            'unit': 'dimensionless',
+            'range': (0.2, 2.5),
+            'description': 'Tissue insulin sensitivity; 1.0=normal, <0.5=resistant, >1.5=athlete'
+        }
+    }
     
     def __init__(self, target_entity='muscle_tissue', basal_rate=0.1, insulin_sensitivity=1.0):
         super().__init__(f"glucose_uptake_{target_entity}", TimeScale.MINUTES)
@@ -64,7 +126,6 @@ class GlucoseUptake(ProcessModel):
         self.basal_rate = basal_rate
         self.insulin_sensitivity = insulin_sensitivity
         
-        # Set inputs/outputs based on target
         self.inputs = {
             'blood_glucose': ('blood', 'glucose'),
             'blood_insulin': ('blood', 'insulin')
@@ -87,12 +148,18 @@ class GlucoseUptake(ProcessModel):
 
 
 class GlycogenSynthesis(ProcessModel):
+    """
+    Glycogen synthesis in liver and muscle
+    
+    Mechanism: Insulin-activated glycogen synthase
+    Timescale: Hours
+    """
+    
     inputs = {
         'fed_status': ('fed_status', None, 'organism'),
         'liver_glucose': ('liver', 'glucose'),
-        'liver_insulin': ('liver', 'insulin'),
+        'blood_insulin': ('blood', 'insulin'),  # ← CHANGED: From blood
         'muscle_glucose': ('muscle_tissue', 'glucose'),
-        'muscle_insulin': ('muscle_tissue', 'insulin')
     }
     outputs = {
         'liver_glucose': ('liver', 'glucose'),
@@ -100,6 +167,8 @@ class GlycogenSynthesis(ProcessModel):
         'muscle_glucose': ('muscle_tissue', 'glucose'),
         'muscle_glycogen': ('muscle_tissue', 'glycogen')
     }
+    
+    parameters = {}
     
     def __init__(self):
         super().__init__("glycogen_synthesis", TimeScale.HOURS)
@@ -109,7 +178,7 @@ class GlycogenSynthesis(ProcessModel):
         
         if fed_status == 'fed':
             liver_glucose = state.get_signal('liver', 'glucose')
-            liver_insulin = state.get_signal('liver', 'insulin')
+            liver_insulin = state.get_signal('blood', 'insulin')  # ← CHANGED: From blood
             
             if liver_insulin > 8.0:
                 synthesis = 0.05 * liver_glucose * (liver_insulin / 10.0)
@@ -118,7 +187,7 @@ class GlycogenSynthesis(ProcessModel):
                 state.update_signal('liver', 'glycogen', amount)
             
             muscle_glucose = state.get_signal('muscle_tissue', 'glucose')
-            muscle_insulin = state.get_signal('muscle_tissue', 'insulin')
+            muscle_insulin = state.get_signal('blood', 'insulin')  # ← CHANGED: From blood
             
             if muscle_insulin > 8.0:
                 synthesis = 0.03 * muscle_glucose * (muscle_insulin / 10.0)
@@ -128,270 +197,249 @@ class GlycogenSynthesis(ProcessModel):
 
 
 class GlycogenBreakdown(ProcessModel):
+    """
+    Glycogen breakdown (glycogenolysis) in liver
+    
+    Mechanism: Glucagon-activated glycogen phosphorylase
+    Timescale: Minutes
+    """
+    
     inputs = {
         'fed_status': ('fed_status', None, 'organism'),
-        'glucagon': ('liver', 'glucagon'),
+        'glucagon': ('blood', 'glucagon'),
         'glycogen': ('liver', 'glycogen')
     }
     outputs = {
         'liver_glycogen': ('liver', 'glycogen'),
-        'liver_glucose': ('liver', 'glucose'),
         'blood_glucose': ('blood', 'glucose')
     }
     
+    parameters = {}
+    
     def __init__(self):
-        super().__init__("glycogen_breakdown", TimeScale.HOURS)
+        super().__init__("glycogen_breakdown", TimeScale.MINUTES)  # ← CHANGED from HOURS
     
     def step(self, state, dt):
         fed_status = state.get_organism_state('fed_status', 'fasted')
-        glucagon = state.get_signal('liver', 'glucagon')
+        glucagon = state.get_signal('blood', 'glucagon')
         
         if fed_status == 'fasted' and glucagon > 70.0:
             liver_glycogen = state.get_signal('liver', 'glycogen')
-            breakdown_rate = 0.03 * (glucagon / 80.0)
-            amount = min(breakdown_rate * (dt / 3600.0), liver_glycogen)
             
-            state.update_signal('liver', 'glycogen', -amount)
-            state.update_signal('liver', 'glucose', amount)
-            state.update_signal('blood', 'glucose', amount * 0.5)
+            # Breakdown rate in g/min (not g/hour!)
+            # At glucagon=80, breakdown = 0.5 g/min
+            breakdown_rate_per_min = 0.5 * (glucagon / 80.0)
+            
+            # Amount in this timestep (dt is in seconds)
+            amount_grams = breakdown_rate_per_min * (dt / 60.0)
+            
+            # Don't break down more than available
+            amount_grams = min(amount_grams, liver_glycogen)
+            
+            # Remove from glycogen store
+            state.update_signal('liver', 'glycogen', -amount_grams)
+            
+            # Convert grams of glycogen to mg/dL blood glucose
+            # 1g glycogen → ~1g glucose (molecular weight similar)
+            # 1g glucose = 1000 mg
+            # Blood volume = 5 L = 50 dL
+            # So 1g glucose → 1000mg / 50dL = 20 mg/dL concentration increase
+            glucose_release_mg_per_dL = amount_grams * 20.0
+            
+            # Add to blood glucose
+            state.update_signal('blood', 'glucose', glucose_release_mg_per_dL)
 
 
 class HepaticGlucoseProduction(ProcessModel):
+    """
+    Hepatic glucose production (gluconeogenesis)
+    
+    Mechanism: Glucagon-stimulated, insulin-suppressed
+    Timescale: Hours
+    """
+    
     inputs = {
-        'glucagon': ('liver', 'glucagon'),
-        'insulin': ('liver', 'insulin'),
+        'glucagon': ('blood', 'glucagon'),
+        'insulin': ('blood', 'insulin'),
         'fed_status': ('fed_status', None, 'organism')
     }
     outputs = {
-        'liver_glucose': ('liver', 'glucose'),
         'blood_glucose': ('blood', 'glucose')
     }
     
+    parameters = {
+        'production_rate': {
+            'default': 2.0,
+            'unit': 'mg/kg/min',
+            'range': (1.5, 3.0),
+            'description': 'Basal hepatic glucose output'
+        }
+    }
+    
     def __init__(self, production_rate=2.0):
-        super().__init__("hepatic_glucose_production", TimeScale.HOURS)
+        super().__init__("hepatic_glucose_production", TimeScale.MINUTES)  # ← CHANGE to MINUTES
         self.production_rate = production_rate
     
     def step(self, state, dt):
-        glucagon = state.get_signal('liver', 'glucagon')
-        insulin = state.get_signal('liver', 'insulin')
+        glucagon = state.get_signal('blood', 'glucagon')
+        insulin = state.get_signal('blood', 'insulin')
         fed_status = state.get_organism_state('fed_status', 'fasted')
         
-        # Base production
         glucagon_factor = glucagon / 60.0
         insulin_factor = 1.0 / (1.0 + insulin / 10.0)
-        
-        # Increase production in fasted state
         fasting_boost = 1.5 if fed_status == 'fasted' else 0.5
         
-        production = self.production_rate * glucagon_factor * insulin_factor * fasting_boost
-        amount = production * (dt / 3600.0)
+        # Calculate production in mg/min for whole body
+        body_weight_kg = 70.0
+        blood_volume_dL = 50.0  # 5 L
         
-        state.update_signal('liver', 'glucose', amount)
-        state.update_signal('blood', 'glucose', amount * 0.8)
-
-
-class CirculatoryTransport(ProcessModel):
-    # Note: This process operates on all flows defined in state.flows
-    # Inputs/outputs are dynamic based on shared signals between flow endpoints
-    inputs = {}  # Dynamic - reads from all entities in flows
-    outputs = {}  # Dynamic - writes to all entities in flows
-    
-    def __init__(self):
-        super().__init__("circulatory_transport", TimeScale.SECONDS)
-    
-    def step(self, state, dt):
-        for flow_id, flow in state.flows.items():
-            from_id = flow['from']
-            to_id = flow['to']
-            rate = flow['rate']
-            
-            # Helper function to get item (entity, organ, or tissue)
-            def get_item(id):
-                if id in state.entities:
-                    return state.entities[id]
-                elif id in state.organs:
-                    return state.organs[id]
-                elif id in state.tissues:
-                    return state.tissues[id]
-                return None
-            
-            from_item = get_item(from_id)
-            to_item = get_item(to_id)
-            
-            if not from_item or not to_item:
-                continue
-            
-            # Get signals from source
-            from_rep = from_item.get('representation', 'lumped')
-            if from_rep in ['lumped', 'spatial']:
-                from_signals = set(from_item['signals'].keys())
-            else:
-                continue
-            
-            # Get signals from target
-            to_rep = to_item.get('representation', 'lumped')
-            if to_rep in ['lumped', 'spatial']:
-                to_signals = set(to_item['signals'].keys())
-            else:
-                continue
-            
-            # Transport shared signals
-            shared = from_signals.intersection(to_signals)
-            
-            for signal in shared:
-                if signal in ['glycogen']:
-                    continue
-                
-                C_from = state.get_signal(from_id, signal)
-                C_to = state.get_signal(to_id, signal)
-                
-                if C_from is None or C_to is None:
-                    continue
-                
-                volume = to_item.get('volume', 1.0)
-                transport_rate = (rate / volume) * (C_from - C_to)
-                amount = transport_rate * (dt / 60.0)
-                
-                state.update_signal(to_id, signal, amount)
+        production_mg_per_min = self.production_rate * glucagon_factor * insulin_factor * fasting_boost * body_weight_kg
+        production_concentration_per_min = production_mg_per_min / blood_volume_dL  # mg/dL/min
+        
+        # dt is in seconds for MINUTES timescale
+        amount = production_concentration_per_min * (dt / 60.0)
+        
+        state.update_signal('blood', 'glucose', amount)
 
 
 class HormoneDegradation(ProcessModel):
-    # Note: Operates on all entities with insulin/glucagon signals
-    inputs = {}  # Dynamic - reads insulin/glucagon from all entities
-    outputs = {}  # Dynamic - writes to insulin/glucagon in all entities
+    """
+    Hormone clearance and degradation
     
-    def __init__(self):
-        super().__init__("hormone_degradation", TimeScale.MINUTES)
-        self.decay_rates = {
-            'insulin': 0.15,           # Half-life ~5 min
-            'glucagon': 0.08,          # Half-life ~9 min
-            'erythropoietin': 0.002    # Half-life ~5 hours (slow clearance)
+    Mechanism: First-order clearance (hepatic/renal)
+    Timescale: Minutes
+    """
+    
+    inputs = {
+        'blood_insulin': ('blood', 'insulin'),
+        'blood_glucagon': ('blood', 'glucagon'),
+        'blood_erythropoietin': ('blood', 'erythropoietin')
+    }
+    outputs = {
+        'blood_insulin': ('blood', 'insulin'),
+        'blood_glucagon': ('blood', 'glucagon'),
+        'blood_erythropoietin': ('blood', 'erythropoietin')
+    }
+    
+    parameters = {
+        'insulin_half_life': {
+            'default': 5.0,
+            'unit': 'minutes',
+            'range': (3.0, 8.0),
+            'description': 'Insulin plasma half-life'
+        },
+        'glucagon_half_life': {
+            'default': 6.0,
+            'unit': 'minutes',
+            'range': (4.0, 10.0),
+            'description': 'Glucagon plasma half-life'
+        },
+        'erythropoietin_half_life': {
+            'default': 300.0,
+            'unit': 'minutes',
+            'range': (4.0, 10.0),
+            'description': 'erythropoietin plasma half-life'
         }
+    }
+    
+    def __init__(self, insulin_half_life=5.0, glucagon_half_life=6.0, erythropoietin_half_life = 300.0):
+        super().__init__("hormone_degradation", TimeScale.MINUTES)
+        self.insulin_half_life = insulin_half_life
+        self.glucagon_half_life = glucagon_half_life
+        self.erythropoietin_half_life = erythropoietin_half_life
     
     def step(self, state, dt):
-        # Degrade hormones in entities
-        for entity_id, entity in state.entities.items():
-            rep = entity['representation']
-            
-            if rep in ['lumped', 'spatial']:
-                for signal_name in list(entity.get('signals', {}).keys()):
-                    if signal_name in self.decay_rates:
-                        rate = self.decay_rates[signal_name]
-                        current = state.get_signal(entity_id, signal_name)
-                        if current is not None and current > 0:
-                            decay = current * rate * (dt / 60.0)
-                            state.update_signal(entity_id, signal_name, -decay)
+        insulin = state.get_signal('blood', 'insulin')
+        glucagon = state.get_signal('blood', 'glucagon')
+        erythropoietin = state.get_signal('blood', 'erythropoietin')
         
-        # Degrade hormones in organs
-        for organ_id, organ in state.organs.items():
-            for signal_name in list(organ.get('signals', {}).keys()):
-                if signal_name in self.decay_rates:
-                    rate = self.decay_rates[signal_name]
-                    current = state.get_signal(organ_id, signal_name)
-                    if current is not None and current > 0:
-                        decay = current * rate * (dt / 60.0)
-                        state.update_signal(organ_id, signal_name, -decay)
+        insulin_decay = insulin * (1 - np.exp(-np.log(2) * dt / (self.insulin_half_life * 60)))
+        glucagon_decay = glucagon * (1 - np.exp(-np.log(2) * dt / (self.glucagon_half_life * 60)))
+        erythropoietin_decay = erythropoietin * (1 - np.exp(-np.log(2) * dt / (self.erythropoietin_half_life * 60)))
         
-        # Degrade hormones in tissues
-        for tissue_id, tissue in state.tissues.items():
-            for signal_name in list(tissue.get('signals', {}).keys()):
-                if signal_name in self.decay_rates:
-                    rate = self.decay_rates[signal_name]
-                    current = state.get_signal(tissue_id, signal_name)
-                    if current is not None and current > 0:
-                        decay = current * rate * (dt / 60.0)
-                        state.update_signal(tissue_id, signal_name, -decay)
+        state.update_signal('blood', 'insulin', -insulin_decay)
+        state.update_signal('blood', 'glucagon', -glucagon_decay)
+        state.update_signal('blood', 'erythropoietin', -erythropoietin_decay)
 
-class f_cell_polypeptide_0036322(ProcessModel):  
+
+class f_cell_polypeptide_0036322(ProcessModel):
     """
-    Simple F cell agent model
+    Pancreatic F-cell polypeptide (PP) secretion
     
-    Each F cell:
-    - Has individual secretion capacity
-    - Responds to meal signals
-    - Can become exhausted with overuse
+    Mechanism: Agent-based F-cell dynamics
+    Timescale: Minutes
     """
     
     inputs = {
         'fed_status': ('fed_status', None, 'organism'),
-        'pp_level': ('blood', 'pancreatic_polypeptide')
+        'blood_pp': ('blood', 'pancreatic_polypeptide')
     }
     outputs = {
         'blood_pp': ('blood', 'pancreatic_polypeptide')
     }
     
+    parameters = {}
+    
     def __init__(self):
         super().__init__("f_cell_dynamics", TimeScale.MINUTES)
     
     def step(self, state, dt):
-        # Check if F cells exist
-        if 'f_cells' not in state.entities:
-            return
-        
-        # Get meal status
         fed_status = state.get_organism_state('fed_status', 'fasted')
-        
-        # Get current PP level
         pp_level = state.get_signal('blood', 'pancreatic_polypeptide')
-        if pp_level is None or pp_level == 0:
-            pp_level = 30.0
         
-        # Process each F cell
+        agents = state.get_agents('f_cells')
+        
         total_secretion = 0.0
+        secretion_capacity = 0.5
         
-        for agent in state.entities['f_cells']['agents']:
-            # Each cell has individual capacity
-            # Agent properties are in agent['state']
-            secretion_capacity = agent['state']['secretion_capacity']
-            activation_threshold = agent['state']['activation_threshold']
+        for agent in agents:
+            if 'state' not in agent:
+                agent['state'] = {
+                    'secretion_capacity': secretion_capacity,
+                    'max_capacity': secretion_capacity
+                }
             
-            # Cells secrete if fed and not exhausted
             if fed_status == 'fed':
-                # Random variation in response
-                if np.random.random() < activation_threshold:
-                    # This cell secretes
-                    amount = secretion_capacity * (dt / 60)  # pg/min
-                    total_secretion += amount
-                    
-                    # Using the cell fatigues it slightly
-                    agent['state']['secretion_capacity'] *= 0.9999
+                secretion = agent['state']['secretion_capacity'] * 0.1 * (dt / 60)
+                total_secretion += secretion
+                agent['state']['secretion_capacity'] *= 0.9999
             else:
-                # Fasted: cells recover capacity
                 if agent['state']['secretion_capacity'] < agent['state'].get('max_capacity', secretion_capacity):
                     agent['state']['secretion_capacity'] *= 1.0001
         
-        # Update blood PP level
-        # Secretion increases, clearance decreases
-        clearance = pp_level * 0.12 * (dt / 60)  # Half-life ~6 min
+        clearance = pp_level * 0.12 * (dt / 60)
         net_change = total_secretion - clearance
         
         new_pp = max(10, pp_level + net_change)
         state.set_signal('blood', 'pancreatic_polypeptide', new_pp)
 
+
 class ErythropoietinProduction(ProcessModel):
     """
-    EPO production by kidneys in response to tissue oxygen
-    
-    Timescale: Hours (EPO synthesis and release)
-    Location: Kidney peritubular fibroblasts
+    EPO production by kidneys in response to tissue hypoxia
     """
     
-    inputs = {
-        'tissue_O2_saturation': ('tissue_oxygen_saturation', None, 'organism'),
-        'epo_capacity': ('kidney', 'epo_production_capacity'),  # Smart lookup finds in organs
-        'functional_mass': ('kidney', 'functional_mass')
-    }
-    outputs = {
-        'blood_epo': ('blood', 'erythropoietin')
+    parameters = {
+        'basal_epo': {
+            'default': 10.0,
+            'unit': 'mU/mL',
+            'range': (5.0, 20.0),
+            'description': 'Baseline EPO in normoxia'
+        },
+        'max_epo': {
+            'default': 200.0,
+            'unit': 'mU/mL',
+            'range': (100.0, 1000.0),
+            'description': 'Maximum EPO in severe hypoxia'
+        }
     }
     
     def __init__(self, basal_epo=10.0, max_epo=200.0):
         super().__init__("epo_production", TimeScale.HOURS)
-        self.basal_epo = basal_epo  # mU/mL baseline
-        self.max_epo = max_epo      # mU/mL maximum
+        self.basal_epo = basal_epo
+        self.max_epo = max_epo
     
     def step(self, state, dt):
-        # Get inputs
         tissue_O2 = state.get_organism_state('tissue_oxygen_saturation', 95.0)
         epo_capacity = state.get_signal('kidney', 'epo_production_capacity')
         if epo_capacity is None:
@@ -400,22 +448,37 @@ class ErythropoietinProduction(ProcessModel):
         if kidney_mass is None:
             kidney_mass = 1.0
         
-        # EPO production inversely proportional to O2 (hypoxia drives EPO)
-        target_O2 = 95.0  # Normal tissue O2 saturation (%)
+        # Target O2 should match baseline tissue O2
+        target_O2 = 97.0  # ← CHANGE from 95.0 to match your baseline
+        
+        # Hypoxia factor: 0 when O2 >= target, increases as O2 drops
         hypoxia_factor = max(0.0, (target_O2 - tissue_O2) / target_O2)
         
-        # Sigmoidal response to hypoxia
+        # Hill function for sigmoidal response
         hill_n = 2.5
-        K_half = 0.1  # 10% hypoxia gives half-max response
+        K_half = 0.15  # ← INCREASE from 0.1 (less sensitive)
+        
         epo_production_rate = self.basal_epo + \
             (self.max_epo - self.basal_epo) * \
             (hypoxia_factor**hill_n) / (K_half**hill_n + hypoxia_factor**hill_n)
         
-        # Scale by kidney capacity and mass
+        # Scale by kidney function
         epo_production_rate *= epo_capacity * kidney_mass
         
-        # Update blood EPO
+        # Calculate amount (mU/mL change)
+        # This is production rate per hour
         epo_amount = epo_production_rate * (dt / 3600.0)
+        
+        # Get current EPO for negative feedback
+        current_epo = state.get_signal('blood', 'erythropoietin')
+        if current_epo is None:
+            current_epo = self.basal_epo
+        
+        # Add negative feedback: reduce production if EPO is high
+        if current_epo > self.basal_epo * 2:
+            feedback_factor = self.basal_epo * 2 / current_epo
+            epo_amount *= feedback_factor
+        
         state.update_signal('blood', 'erythropoietin', epo_amount)
 
 
@@ -439,36 +502,41 @@ class ErythropoiesisStimulation(ProcessModel):
     def __init__(self, basal_production=2.5e11):
         super().__init__("erythropoiesis", TimeScale.DAYS)
         self.basal_production = float(basal_production)  # RBCs/day (baseline ~250 billion)
-    
     def step(self, state, dt):
-        # Get inputs
         epo = state.get_signal('blood', 'erythropoietin')
         if epo is None:
-            epo = 10.0  # Basal EPO
+            epo = 10.0
         
         marrow_capacity = state.get_signal('bone_marrow', 'erythropoiesis_capacity')
         if marrow_capacity is None:
             marrow_capacity = 1.0
         
-        # EPO-stimulated production (sigmoidal)
-        epo_baseline = 10.0  # mU/mL
-        K_epo = 20.0  # Half-maximal EPO
+        # Get current RBC for negative feedback
+        current_rbc = state.get_signal('blood', 'rbc_count')
+        if current_rbc is None:
+            current_rbc = 5.0e6
+        
+        # Add negative feedback: stop production if RBC too high
+        target_rbc = 5.5e6  # Normal upper limit
+        if current_rbc > target_rbc:
+            rbc_inhibition = target_rbc / current_rbc
+        else:
+            rbc_inhibition = 1.0
+        
+        epo_baseline = 10.0
+        K_epo = 20.0
         hill_n = 2.0
         epo_factor = 1.0 + 3.0 * (epo**hill_n) / (K_epo**hill_n + epo**hill_n)
         
-        # Total RBC production
-        rbc_production_rate = self.basal_production * epo_factor * marrow_capacity
+        rbc_production_rate = self.basal_production * epo_factor * marrow_capacity * rbc_inhibition
         
-        # Update RBC count (cells/µL)
-        # Average adult has ~5L blood, ~5 million RBC/µL
         blood_volume_liters = 5.0
-        new_rbcs = rbc_production_rate * (dt / 86400.0)  # RBCs produced this timestep
-        rbc_per_uL_increase = new_rbcs / (blood_volume_liters * 1e6)  # Convert to per µL
+        new_rbcs = rbc_production_rate * (dt / 86400.0)
+        rbc_per_uL_increase = new_rbcs / (blood_volume_liters * 1e6)
         
         state.update_signal('blood', 'rbc_count', rbc_per_uL_increase)
         
-        # Hemoglobin (g/dL) - each RBC carries ~30 pg Hb
-        hb_increase = (new_rbcs * 30e-12) / (blood_volume_liters * 10)  # g/dL (convert L to dL)
+        hb_increase = (new_rbcs * 30e-12) / (blood_volume_liters * 10)
         state.update_signal('blood', 'hemoglobin', hb_increase)
 
 
@@ -476,8 +544,8 @@ class RBCTurnover(ProcessModel):
     """
     RBC removal by spleen (120-day lifespan)
     
+    Mechanism: Senescent RBC removal by reticuloendothelial system
     Timescale: Days
-    Location: Spleen and liver (reticuloendothelial system)
     """
     
     inputs = {
@@ -489,22 +557,29 @@ class RBCTurnover(ProcessModel):
         'blood_hemoglobin': ('blood', 'hemoglobin')
     }
     
+    parameters = {
+        'rbc_lifespan_days': {
+            'default': 120.0,
+            'unit': 'days',
+            'range': (90.0, 140.0),
+            'description': 'RBC lifespan; reduced in hemolytic anemia'
+        }
+    }
+    
     def __init__(self, rbc_lifespan_days=120.0):
         super().__init__("rbc_turnover", TimeScale.DAYS)
         self.rbc_lifespan_days = rbc_lifespan_days
     
     def step(self, state, dt):
-        # Get current RBC count and hemoglobin
         rbc_count = state.get_signal('blood', 'rbc_count')
         hemoglobin = state.get_signal('blood', 'hemoglobin')
         
         if rbc_count is None or rbc_count == 0:
-            rbc_count = 5.0e6  # Normal ~5 million/µL
+            rbc_count = 5.0e6
         if hemoglobin is None or hemoglobin == 0:
-            hemoglobin = 15.0  # Normal ~15 g/dL
+            hemoglobin = 15.0
         
-        # First-order removal (exponential decay)
-        removal_rate = 1.0 / self.rbc_lifespan_days  # per day
+        removal_rate = 1.0 / self.rbc_lifespan_days
         
         rbc_removed = rbc_count * removal_rate * (dt / 86400.0)
         hb_removed = hemoglobin * removal_rate * (dt / 86400.0)
@@ -517,8 +592,8 @@ class OxygenDelivery(ProcessModel):
     """
     Oxygen transport from lungs to tissues via hemoglobin
     
+    Mechanism: Hb-O2 binding and dissociation
     Timescale: Seconds (circulation time)
-    Location: Cardiovascular system
     """
     
     inputs = {
@@ -530,36 +605,66 @@ class OxygenDelivery(ProcessModel):
         'tissue_O2_saturation': ('tissue_oxygen_saturation', None, 'organism')
     }
     
+    parameters = {}
+    
     def __init__(self):
         super().__init__("oxygen_delivery", TimeScale.SECONDS)
     
     def step(self, state, dt):
-        # Get inputs
         hemoglobin = state.get_signal('blood', 'hemoglobin')
         if hemoglobin is None or hemoglobin == 0:
-            hemoglobin = 15.0  # g/dL
+            hemoglobin = 15.0
         
-        cardiac_output = state.get_organism_state('cardiac_output', 5.0)  # L/min
+        cardiac_output = state.get_organism_state('cardiac_output', 5.0)
         
-        # Oxygen carrying capacity
-        # Each g of Hb carries ~1.34 mL O2 when saturated
-        O2_capacity = hemoglobin * 1.34  # mL O2 per dL blood
+        O2_capacity = hemoglobin * 1.34
+        O2_delivery = O2_capacity * cardiac_output * 10
+        O2_consumption = 250.0
         
-        # Oxygen delivery rate
-        O2_delivery = O2_capacity * cardiac_output * 10  # mL O2/min (convert dL to L)
+        baseline_delivery = 1000.0
+        baseline_saturation = 95.0
         
-        # Tissue oxygen consumption (basal metabolic rate)
-        O2_consumption = 250.0  # mL O2/min at rest
-        
-        # Tissue O2 saturation represents adequacy of oxygen delivery
-        # Normal: delivery ~4x consumption → 95% saturation
-        # Anemia/heart failure: delivery drops → saturation drops → EPO rises
-        
-        baseline_delivery = 1000.0  # Normal O2 delivery (mL/min)
-        baseline_saturation = 95.0  # Normal tissue O2 saturation (%)
-        
-        # Saturation proportional to delivery relative to baseline
         tissue_O2_saturation = baseline_saturation * (O2_delivery / baseline_delivery)
         tissue_O2_saturation = max(0.0, min(100.0, tissue_O2_saturation))
         
         state.set_organism_state('tissue_oxygen_saturation', tissue_O2_saturation)
+
+class TissueGlucoseConsumption(ProcessModel):
+    """
+    Glucose oxidation by tissues for ATP production
+    
+    Mechanism: Glycolysis + TCA cycle
+    Timescale: Minutes
+    """
+    
+    parameters = {
+        'consumption_rate': {
+            'default': 0.05,
+            'unit': 'mg/dL/min',
+            'description': 'Basal glucose consumption rate'
+        }
+    }
+    
+    def __init__(self, target_entity='muscle_tissue', consumption_rate=0.05):
+        super().__init__(f"glucose_consumption_{target_entity}", TimeScale.MINUTES)
+        self.target_entity = target_entity
+        self.consumption_rate = consumption_rate
+        
+        self.inputs = {
+            'tissue_glucose': (target_entity, 'glucose')
+        }
+        self.outputs = {
+            'tissue_glucose': (target_entity, 'glucose')
+        }
+    
+    def step(self, state, dt):
+        tissue_glucose = state.get_signal(self.target_entity, 'glucose')
+        
+        # Consume glucose proportional to availability
+        consumption = self.consumption_rate * (tissue_glucose / 90.0)
+        amount = consumption * (dt / 60.0)
+        
+        # Don't consume more than available
+        amount = min(amount, tissue_glucose)
+        
+        state.update_signal(self.target_entity, 'glucose', -amount)

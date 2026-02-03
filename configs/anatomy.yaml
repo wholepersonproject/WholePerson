@@ -1,8 +1,7 @@
-# Hierarchical anatomy definition
-# Proper separation: organs, tissues, entities (fluids/cells), flows, organism
+# Hierarchical anatomy definition with constraints
 
 # =========================================================================
-# ORGANS - Discrete anatomical structures
+# ORGANS
 # =========================================================================
 organs:
   bone_marrow:
@@ -11,7 +10,12 @@ organs:
     spatial_type: distributed
     volume: 5.0
     signals:
-      erythropoiesis_capacity: 1.0
+      erythropoiesis_capacity:
+        initial: 1.0
+        unit: relative
+        min: 0.0
+        max: 3.0
+        warn_below: 0.6
 
   kidney:
     organ_system: excretory
@@ -22,8 +26,18 @@ organs:
     dx: 1.0
     volume: 0.5
     signals:
-      epo_production_capacity: 0.95
-      functional_mass: 1.0
+      epo_production_capacity:
+        initial: 0.95
+        unit: fraction
+        min: 0.0
+        max: 1.0
+        warn_below: 0.5
+      functional_mass:
+        initial: 1.0
+        unit: relative
+        min: 0.0
+        max: 2.0
+        warn_below: 0.7
 
   liver:
     organ_system: digestive
@@ -32,10 +46,27 @@ organs:
     position: [40, -20, 380]
     volume: 1.5
     signals:
-      glucose: 100.0
-      glycogen: 50.0
-      insulin: 5.0
-      glucagon: 60.0
+      glucose:
+        initial: 100.0
+        unit: mg/dL
+        min: 0.0
+        max: 500.0
+      glycogen:
+        initial: 50.0
+        unit: g
+        min: 0.0
+        max: 150.0
+        warn_below: 10.0
+      #insulin:
+      #  initial: 5.0
+      #  unit: µU/mL
+      #  min: 0.0
+      #  max: 300.0
+      #glucagon:
+      #  initial: 60.0
+      #  unit: pg/mL
+      #  min: 0.0
+      #  max: 500.0
 
   pancreas:
     organ_system: endocrine
@@ -46,9 +77,21 @@ organs:
     dx: 0.1
     volume: 0.1
     signals:
-      glucose: 100.0
-      insulin: 50.0
-      glucagon: 80.0
+      glucose:
+        initial: 100.0
+        unit: mg/dL
+        min: 0.0
+        max: 500.0
+      #insulin:
+      #  initial: 50.0
+      #  unit: µU/mL
+      #  min: 0.0
+      #  max: 500.0
+      #glucagon:
+      #  initial: 80.0
+      #  unit: pg/mL
+      #  min: 0.0
+      #  max: 500.0
 
   brain:
     organ_system: nervous
@@ -57,8 +100,16 @@ organs:
     position: [0, 30, 650]
     volume: 1.4
     signals:
-      glucose: 80.0
-      oxygen: 95.0
+      glucose:
+        initial: 80.0
+        unit: mg/dL
+        min: 0.0
+        max: 300.0
+      oxygen:
+        initial: 95.0
+        unit: percent
+        min: 0.0
+        max: 100.0
 
   heart:
     organ_system: cardiovascular
@@ -67,49 +118,127 @@ organs:
     position: [20, 0, 450]
     volume: 0.3
     signals:
-      glucose: 90.0
-      oxygen: 95.0
+      glucose:
+        initial: 90.0
+        unit: mg/dL
+        min: 0.0
+        max: 300.0
+      oxygen:
+        initial: 95.0
+        unit: percent
+        min: 0.0
+        max: 100.0
 
 # =========================================================================
-# TISSUES - Distributed tissue types
+# TISSUES
 # =========================================================================
 tissues:
   muscle_tissue:
     type: muscle
     signals:
-      glucose: 90.0
-      glycogen: 15.0
-      insulin: 5.0
+      glucose:
+        initial: 90.0
+        unit: mg/dL
+        min: 0.0
+        max: 300.0
+      glycogen:
+        initial: 15.0
+        unit: g
+        min: 0.0
+        max: 30.0
+      insulin:
+        initial: 5.0
+        unit: µU/mL
+        min: 0.0
+        max: 300.0
 
   adipose_tissue:
     type: adipose
     signals:
-      glucose: 90.0
-      free_fatty_acids: 0.4
-      insulin: 5.0
+      glucose:
+        initial: 90.0
+        unit: mg/dL
+        min: 0.0
+        max: 300.0
+      free_fatty_acids:
+        initial: 0.4
+        unit: mmol/L
+        min: 0.0
+        max: 2.0
+      insulin:
+        initial: 5.0
+        unit: µU/mL
+        min: 0.0
+        max: 300.0
 
 # =========================================================================
-# ENTITIES - Fluids and cell populations
+# ENTITIES
 # =========================================================================
 entities:
-  # Distributed fluids
   blood:
     type: fluid
     representation: lumped
     spatial_type: distributed
     volume: 5.0
     signals:
-      glucose: 90.0
-      insulin: 5.0
-      glucagon: 60.0
-      oxygen: 80.0
-      lactate: 1.0
-      pancreatic_polypeptide: 30.0
-      rbc_count: 5000000.0        # cells/µL
-      hemoglobin: 8.0            # g/dL
-      erythropoietin: 10.0        # mU/mL
+      glucose:
+        initial: 90.0
+        unit: mg/dL
+        min: 0.0
+        max: 600.0
+        warn_below: 70.0
+        warn_above: 180.0
+      insulin:
+        initial: 5.0
+        unit: µU/mL
+        min: 0.0
+        max: 300.0
+        warn_above: 100.0
+      glucagon:
+        initial: 60.0
+        unit: pg/mL
+        min: 0.0
+        max: 500.0
+        warn_below: 20.0
+        warn_above: 200.0
+      oxygen:
+        initial: 80.0
+        unit: percent
+        min: 0.0
+        max: 100.0
+        warn_below: 90.0
+      lactate:
+        initial: 1.0
+        unit: mmol/L
+        min: 0.0
+        max: 20.0
+        warn_above: 4.0
+      pancreatic_polypeptide:
+        initial: 30.0
+        unit: pg/mL
+        min: 0.0
+        max: 500.0
+      rbc_count:
+        initial: 5000000.0
+        unit: cells/µL
+        min: 0.0
+        max: 10000000.0
+        warn_below: 3500000.0
+        warn_above: 6500000.0
+      hemoglobin:
+        initial: 15.0
+        unit: g/dL
+        min: 0.0
+        max: 25.0
+        warn_below: 12.0
+        warn_above: 18.0
+      erythropoietin:
+        initial: 10.0
+        unit: mU/mL
+        min: 0.0
+        max: 1000.0
+        warn_above: 100.0
 
-  # Cell populations
   beta_cells:
     type: cell_population
     representation: agents
@@ -141,7 +270,7 @@ entities:
       glucagon_secretion_rate: 5.0
 
 # =========================================================================
-# FLOWS - Circulatory transport between compartments
+# FLOWS
 # =========================================================================
 flows:
   blood_to_liver:
@@ -193,13 +322,29 @@ flows:
     type: venous
 
 # =========================================================================
-# ORGANISM - Whole-body state variables
+# ORGANISM
 # =========================================================================
 organism:
   fed_status: fasted
   exercise_intensity: 0.0
   body_position: standing
-  heart_rate: 70.0
+  heart_rate:
+    initial: 70.0
+    unit: bpm
+    min: 20.0
+    max: 220.0
+    warn_below: 50.0
+    warn_above: 100.0
   age_years: 30.0
-  tissue_oxygen_saturation: 95.0  # Normal is 95%, not 80%
-  cardiac_output: 5.0              # L/min, resting normal
+  tissue_oxygen_saturation:
+    initial: 95.0
+    unit: percent
+    min: 0.0
+    max: 100.0
+    warn_below: 90.0
+  cardiac_output:
+    initial: 5.0
+    unit: L/min
+    min: 0.0
+    max: 30.0
+    warn_below: 3.0

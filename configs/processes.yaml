@@ -2,10 +2,10 @@ processes:
   # =========================================================================
   # CIRCULATION (SECONDS - runs first, distributes signals)
   # =========================================================================
-  circulatory_transport:
-    class: models.physiology.CirculatoryTransport
-    timescale: seconds
-    dependencies: []
+  #circulatory_transport:
+  #  class: models.physiology.CirculatoryTransport
+  #  timescale: seconds
+  #  dependencies: []
 
   # =========================================================================
   # GLUCOSE/INSULIN PATHWAY (MINUTES - frequent execution)
@@ -32,7 +32,7 @@ processes:
     dependencies: [insulin_secretion]
     parameters:
       target_entity: muscle_tissue
-      basal_rate: 0.01
+      basal_rate: 0.05
       insulin_sensitivity: 1.0
 
   glucose_uptake_adipose:
@@ -41,7 +41,7 @@ processes:
     dependencies: [insulin_secretion]
     parameters:
       target_entity: adipose_tissue
-      basal_rate: 0.005
+      basal_rate: 0.02
       insulin_sensitivity: 1.0
 
   hormone_degradation:
@@ -106,3 +106,17 @@ processes:
     dependencies: [erythropoiesis]
     parameters:
       rbc_lifespan_days: 120.0
+
+  glucose_consumption_muscle:
+    class: models.physiology.TissueGlucoseConsumption
+    parameters:
+      target_entity: muscle_tissue
+      consumption_rate: 0.08
+    dependencies: [glucose_uptake_muscle]
+
+  glucose_consumption_adipose:
+    class: models.physiology.TissueGlucoseConsumption
+    parameters:
+      target_entity: adipose_tissue
+      consumption_rate: 0.04
+    dependencies: [glucose_uptake_adipose]
