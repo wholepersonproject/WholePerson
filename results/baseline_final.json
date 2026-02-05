@@ -4,6 +4,8 @@
     "fed_status": "fasted",
     "exercise_intensity": 0.0,
     "body_position": "standing",
+    "age": 20,
+    "sex": "male",
     "heart_rate": 70.0,
     "age_years": 30.0,
     "tissue_oxygen_saturation": 100.0,
@@ -19,7 +21,9 @@
       "pancreatic_polypeptide": 10,
       "rbc_count": 7099353.34826758,
       "hemoglobin": 21.29805991345837,
-      "erythropoietin": 35.74569098389552
+      "erythropoietin": 35.74569098389552,
+      "calcium": 10.0,
+      "calcitonin": 7500000.0
     }
   },
   "organs": {
@@ -44,6 +48,9 @@
     "heart": {
       "glucose": 90.0,
       "oxygen": 95.0
+    },
+    "thyroid": {
+      "secretion_rate": 1.0
     }
   },
   "tissues": {

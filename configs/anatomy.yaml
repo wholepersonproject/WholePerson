@@ -128,7 +128,14 @@ organs:
         unit: percent
         min: 0.0
         max: 100.0
-
+  thyroid: 
+    organ_system: endocrine
+    representation: lumped
+    spatial_type: localized
+    position: [0,300,0]
+    volume: 0.2
+    signals: 
+      secretion_rate: 1.0
 # =========================================================================
 # TISSUES
 # =========================================================================
@@ -238,6 +245,12 @@ entities:
         min: 0.0
         max: 1000.0
         warn_above: 100.0
+      calcium: 
+        initial: 10.0
+        unit: g/dL
+        min: 0.0
+        max: 1000.0
+        warn_above: 100.0
 
   beta_cells:
     type: cell_population
@@ -268,6 +281,16 @@ entities:
     distribution: random
     agent_properties:
       glucagon_secretion_rate: 5.0
+  
+  parafollicular_cells:
+    type: cell_population
+    representation: agents
+    spatial_type: localized
+    parent_entity: thyroid
+    count: 500
+    distribution: random
+    agent_properties:
+      calcitonin_secretion_rate: 4.0
 
 # =========================================================================
 # FLOWS

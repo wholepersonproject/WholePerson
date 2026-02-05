@@ -29,7 +29,7 @@ class SimulationState:
         
         # NEW: Constraint system
         self._constraints = {}  # (entity_id, signal_name) -> {min, max, warn_below, warn_above}
-        self.enforce_constraints = True  # ← ADD THIS LINE (default: enabled)
+        self.enforce_constraints = True  # Flag to enforce constraints
 
     
     # =========================================================================

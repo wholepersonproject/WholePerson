@@ -120,3 +120,13 @@ processes:
       target_entity: adipose_tissue
       consumption_rate: 0.12
     dependencies: [glucose_uptake_adipose]
+
+  calcitonin_release: 
+    class: models.skeletal.CalcitoninSecretion_0036161
+    timescale: minutes
+    parameters: 
+      calcitonin_secretion_rate: 5.0
+      calcium_activation_coeff: 2.0
+      calcium_threshold: 20.0
+    dependencies: []
+      
