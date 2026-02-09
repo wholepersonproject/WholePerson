@@ -129,4 +129,13 @@ processes:
       calcium_activation_coeff: 2.0
       calcium_threshold: 20.0
     dependencies: []
+
+  parathyroid_hormone_release: 
+    class: models.skeletal.ParathyroidHormoneSecretion_0035898
+    timescale: minutes
+    parameters: 
+      parathyroid_hormone_secretion_rate: 5.0
+      calcium_decrease_coeff: 2.0
+      calcium_threshold: 20.0
+    dependencies: []
       

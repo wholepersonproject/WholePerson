@@ -29,7 +29,7 @@ class SimulationState:
         
         # NEW: Constraint system
         self._constraints = {}  # (entity_id, signal_name) -> {min, max, warn_below, warn_above}
-        self.enforce_constraints = True  # Flag to enforce constraints
+        self.enforce_constraints = True  # ← ADD THIS LINE (default: enabled)
 
     
     # =========================================================================
@@ -518,6 +518,86 @@ class SimulationState:
             return None
         
         return np.linalg.norm(np.array(pos1) - np.array(pos2))
+    
+    # =========================================================================
+    # GEOMETRY QUERIES
+    # =========================================================================
+    
+    def get_organ_geometry(self, organ_id):
+        """Get geometry description for an organ"""
+        organ = self.organs.get(organ_id)
+        if not organ:
+            return None
+        return organ.get('geometry')
+    
+    def get_organ_bounding_box(self, organ_id):
+        """
+        Compute axis-aligned bounding box from geometry primitives
+        
+        Returns:
+            dict with 'min' and 'max' arrays in world coordinates,
+            or None if no geometry defined
+        """
+        geo = self.get_organ_geometry(organ_id)
+        if not geo or 'primitives' not in geo:
+            return None
+        
+        mins = np.array([np.inf, np.inf, np.inf])
+        maxs = np.array([-np.inf, -np.inf, -np.inf])
+        
+        for prim in geo['primitives']:
+            offset = np.array(prim.get('offset', [0, 0, 0]), dtype=float)
+            if prim['shape'] == 'sphere':
+                r = prim['radius']
+                mins = np.minimum(mins, offset - r)
+                maxs = np.maximum(maxs, offset + r)
+            elif prim['shape'] == 'ellipsoid':
+                radii = np.array(prim['radii'], dtype=float)
+                mins = np.minimum(mins, offset - radii)
+                maxs = np.maximum(maxs, offset + radii)
+            elif prim['shape'] == 'box':
+                half = np.array(prim['dimensions'], dtype=float) / 2
+                mins = np.minimum(mins, offset - half)
+                maxs = np.maximum(maxs, offset + half)
+        
+        anchor = np.array(self.organs[organ_id].get('position', [0, 0, 0]), dtype=float)
+        return {'min': anchor + mins, 'max': anchor + maxs}
+    
+    def point_in_organ(self, organ_id, point):
+        """
+        Test whether a world-space point falls inside any geometry primitive
+        
+        Args:
+            organ_id: Organ identifier
+            point: [x, y, z] in world coordinates
+            
+        Returns:
+            True/False, or None if no geometry defined
+        """
+        geo = self.get_organ_geometry(organ_id)
+        if not geo or 'primitives' not in geo:
+            return None
+        
+        anchor = np.array(self.organs[organ_id].get('position', [0, 0, 0]), dtype=float)
+        local_pt = np.array(point, dtype=float) - anchor
+        
+        for prim in geo['primitives']:
+            offset = np.array(prim.get('offset', [0, 0, 0]), dtype=float)
+            rel = local_pt - offset
+            
+            if prim['shape'] == 'sphere':
+                if np.linalg.norm(rel) <= prim['radius']:
+                    return True
+            elif prim['shape'] == 'ellipsoid':
+                radii = np.array(prim['radii'], dtype=float)
+                if np.sum((rel / radii) ** 2) <= 1.0:
+                    return True
+            elif prim['shape'] == 'box':
+                half = np.array(prim['dimensions'], dtype=float) / 2
+                if np.all(np.abs(rel) <= half):
+                    return True
+        
+        return False
     
     # =========================================================================
     # ORGANISM STATE

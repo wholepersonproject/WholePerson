@@ -78,6 +78,7 @@ class EntityFactory:
                 spatial_type=config.get('spatial_type', 'localized'),
                 position=config.get('position'),
                 volume=config.get('volume', 1.0),
+                geometry=config.get('geometry'),
                 signals=signals
             )
         
@@ -111,6 +112,7 @@ class EntityFactory:
                 shape=shape,
                 dx=config.get('dx', 1.0),
                 volume=config.get('volume', 1.0),
+                geometry=config.get('geometry'),
                 signals=spatial_signals
             )
     

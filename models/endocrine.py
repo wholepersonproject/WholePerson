@@ -314,13 +314,16 @@ class HormoneDegradation(ProcessModel):
         'blood_insulin': ('blood', 'insulin'),
         'blood_glucagon': ('blood', 'glucagon'),
         'blood_erythropoietin': ('blood', 'erythropoietin'),
-        'blood_calcitonin': ('blood', 'calcitonin')
+        'blood_calcitonin': ('blood', 'calcitonin'),
+        'blood_parathyroid': ('blood', 'parathyroid_hormone')
+
     }
     outputs = {
         'blood_insulin': ('blood', 'insulin'),
         'blood_glucagon': ('blood', 'glucagon'),
         'blood_erythropoietin': ('blood', 'erythropoietin'), 
-        'blood_calcitonin': ('blood', 'calcitonin')
+        'blood_calcitonin': ('blood', 'calcitonin'),
+        'blood_parathyroid': ('blood', 'parathyroid_hormone')
 
     }
     
@@ -348,34 +351,45 @@ class HormoneDegradation(ProcessModel):
             'unit': 'minutes',
             'range': (4.0, 10.0),
             'description': 'calcitonin plasma half-life'
+        },
+        'parathyroid_hormone_half_life': {
+            'default': 5.0,
+            'unit': 'minutes',
+            'range': (4.0, 10.0),
+            'description': 'parathyroid hormone plasma half-life'
         }
+        
         
         
     }
     
-    def __init__(self, insulin_half_life=5.0, glucagon_half_life=6.0, erythropoietin_half_life = 300.0, calcitonin_half_life = 5.0):
+    def __init__(self, insulin_half_life=5.0, glucagon_half_life=6.0, erythropoietin_half_life = 300.0, calcitonin_half_life = 5.0, parathyroid_hormone_half_life = 5.0):
         super().__init__("hormone_degradation", TimeScale.MINUTES)
         self.insulin_half_life = insulin_half_life
         self.glucagon_half_life = glucagon_half_life
         self.erythropoietin_half_life = erythropoietin_half_life
         self.calcitonin_half_life = calcitonin_half_life
+        self.parathyroid_hormone_half_life = parathyroid_hormone_half_life
     
     def step(self, state, dt):
         insulin = state.get_signal('blood', 'insulin')
         glucagon = state.get_signal('blood', 'glucagon')
         erythropoietin = state.get_signal('blood', 'erythropoietin')
         calcitonin = state.get_signal('blood', 'calcitonin')
+        PTH = state.get_signal('blood', 'parathyroid_hormone')
         
         insulin_decay = insulin * (1 - np.exp(-np.log(2) * dt / (self.insulin_half_life * 60)))
         glucagon_decay = glucagon * (1 - np.exp(-np.log(2) * dt / (self.glucagon_half_life * 60)))
         erythropoietin_decay = erythropoietin * (1 - np.exp(-np.log(2) * dt / (self.erythropoietin_half_life * 60)))
         calcitonin_decay = calcitonin * (1 - np.exp(-np.log(2) * dt / (self.calcitonin_half_life * 60)))
+        pth_decay = PTH * (1 - np.exp(-np.log(2) * dt / (self.parathyroid_hormone_half_life * 60)))
 
         
         state.update_signal('blood', 'insulin', -insulin_decay)
         state.update_signal('blood', 'glucagon', -glucagon_decay)
         state.update_signal('blood', 'erythropoietin', -erythropoietin_decay)
         state.update_signal('blood', 'calcitonin', -calcitonin_decay)
+        state.update_signal('blood', 'parathyroid_hormone', -pth_decay)
 
 
 class f_cell_polypeptide_0036322(ProcessModel):

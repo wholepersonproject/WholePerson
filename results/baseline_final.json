@@ -3,6 +3,7 @@
   "organism": {
     "fed_status": "fasted",
     "exercise_intensity": 0.0,
+    "dietary_calcium": 1000.0,
     "body_position": "standing",
     "age": 20,
     "sex": "male",
@@ -13,6 +14,7 @@
   },
   "entities": {
     "blood": {
+      "calcitriol": 50.0,
       "glucose": 37.25918910938076,
       "insulin": 211.62271837648143,
       "glucagon": 18.06639848734762,
@@ -22,17 +24,23 @@
       "rbc_count": 7099353.34826758,
       "hemoglobin": 21.29805991345837,
       "erythropoietin": 35.74569098389552,
-      "calcium": 10.0,
-      "calcitonin": 7500000.0
+      "calcium": 9.5,
+      "calcitonin": 1681.255989718143,
+      "parathyroid_hormone": 504376.79691544274
     }
   },
   "organs": {
     "bone_marrow": {
       "erythropoiesis_capacity": 1.0
     },
+    "bone": {
+      "calcium_store": 1.0
+    },
     "kidney": {
       "epo_production_capacity": 0.9499998688697815,
-      "functional_mass": 1.0
+      "functional_mass": 1.0,
+      "filtered_calcium": 0.0,
+      "urinary_calcium": 0.0
     },
     "liver": {
       "glucose": 100.0,
@@ -49,9 +57,8 @@
       "glucose": 90.0,
       "oxygen": 95.0
     },
-    "thyroid": {
-      "secretion_rate": 1.0
-    }
+    "thyroid": {},
+    "parathyroid_glands": {}
   },
   "tissues": {
     "muscle_tissue": {
