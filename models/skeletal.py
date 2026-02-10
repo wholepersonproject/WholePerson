@@ -313,3 +313,363 @@ class ProximalTubuleHydroxylase(ProcessModel):
         # Calcitriol produced, calcifediol consumed
         state.update_signal('blood', 'calcitriol', rate * (dt / 3600.0))
         state.update_signal('blood', 'calcifediol', -rate * self.conversion_ratio * (dt / 3600.0))
+
+
+class SclerostinRegulation_0046850(ProcessModel):
+    """
+    Osteocyte mechanosensing and sclerostin regulation on spatial bone grid
+    
+    Mechanism: Osteocytes are the primary mechanosensors in bone, embedded
+    in the mineralized matrix. Mechanical strain drives canalicular fluid
+    flow past osteocyte processes, activating mechanotransduction (Piezo1,
+    integrins, primary cilia). Under sufficient strain, osteocytes suppress
+    sclerostin (SOST) transcription. Sclerostin is a Wnt antagonist —
+    its reduction de-represses the Wnt/β-catenin pathway in nearby
+    osteoblasts, enabling bone formation.
+    
+    Sclerostin is secreted locally and diffuses through the bone matrix
+    within paracrine range (~2–3 mm). It decays with a ~6 hour half-life.
+    
+    The strain field is computed from organism exercise_intensity, mapped
+    to a spatial gradient via Frost's mechanostat framework: periosteal
+    (near-surface) voxels see more strain than endosteal (interior).
+    
+    Timescale: Minutes (mechanotransduction is fast; protein turnover is slow
+               but the secretion decision is rapid)
+    Location: Bone tissue (osteocyte lacunar-canalicular network)
+    
+    CSV rows covered:
+        - osteocyte does sclerostin secretion          [2.5, 4] ng/mL
+        - mechanical loading decreases sclerostin      (systemic → paracrine)
+        - sclerostin decreases bone synthesis           (via diffusion to osteoblasts)
+    
+    Equations:
+        Strain field (algebraic, recomputed each step):
+            depth[i,j,k] = min distance to grid boundary
+            surface_strain = base_strain + (peak_strain - base_strain) × exercise
+            strain[i,j,k] = surface_strain × (1 - attenuation × depth / max_depth)
+    
+        Per osteocyte at grid position (i,j,k):
+            local_strain = strain[i,j,k]
+            suppression = K_strain^n / (K_strain^n + local_strain^n)
+            secretion = base_rate × agent.mechanosensitivity × suppression × dt
+            sclerostin_field[i,j,k] += secretion
+    
+        Diffusion (3D explicit finite difference, Neumann BC):
+            ∇²S = Laplacian stencil with no-flux padding
+            S += D × ∇²S × dt
+    
+        Decay:
+            S *= exp(-decay_rate × dt)
+    """
+    
+    inputs = {
+        'exercise':          ('organism', 'exercise_intensity'),
+        'sclerostin_field':  ('bone', 'sclerostin'),
+    }
+    outputs = {
+        'sclerostin_field':  ('bone', 'sclerostin'),
+    }
+    
+    parameters = {
+        'base_sclerostin_rate': {
+            'default': 0.05,
+            'unit': 'ng/mL/min/agent',
+            'range': (0.01, 0.1),
+            'description': 'Sclerostin secretion rate per osteocyte at zero strain'
+        },
+        'K_strain': {
+            'default': 1500.0,
+            'unit': 'microstrain',
+            'range': (800.0, 2500.0),
+            'description': 'Frost mechanostat set-point — strain for half-max secretion suppression'
+        },
+        'strain_cooperativity': {
+            'default': 3,
+            'unit': 'dimensionless',
+            'range': (2, 5),
+            'description': 'Hill coefficient for strain-response sigmoidal sharpness'
+        },
+        'diffusion_coeff': {
+            'default': 0.001,
+            'unit': 'mm²/s',
+            'range': (0.0005, 0.005),
+            'description': 'Sclerostin diffusion in bone matrix — gives ~3 mm paracrine range per hour'
+        },
+        'decay_rate': {
+            'default': 3.2e-5,
+            'unit': '1/s',
+            'range': (1e-5, 1e-4),
+            'description': 'Sclerostin degradation rate (~6 hour half-life, ln2/6h)'
+        },
+        'base_strain': {
+            'default': 800.0,
+            'unit': 'microstrain',
+            'range': (400.0, 1200.0),
+            'description': 'Background periosteal strain from sedentary daily activities'
+        },
+        'peak_exercise_strain': {
+            'default': 2500.0,
+            'unit': 'microstrain',
+            'range': (1500.0, 4000.0),
+            'description': 'Peak periosteal strain at maximal exercise_intensity'
+        },
+        'strain_attenuation': {
+            'default': 0.7,
+            'unit': 'dimensionless',
+            'range': (0.5, 0.9),
+            'description': 'Fraction of surface strain lost at deepest interior point'
+        },
+    }
+    
+    def __init__(self, base_sclerostin_rate=0.05, K_strain=1500.0,
+                 strain_cooperativity=3, diffusion_coeff=0.001,
+                 decay_rate=3.2e-5, base_strain=800.0,
+                 peak_exercise_strain=2500.0, strain_attenuation=0.7):
+        super().__init__("sclerostin_regulation", TimeScale.MINUTES)
+        self.base_sclerostin_rate = base_sclerostin_rate
+        self.K_strain = K_strain
+        self.strain_cooperativity = strain_cooperativity
+        self.diffusion_coeff = diffusion_coeff
+        self.decay_rate = decay_rate
+        self.base_strain = base_strain
+        self.peak_exercise_strain = peak_exercise_strain
+        self.strain_attenuation = strain_attenuation
+        
+        # Cached depth map — computed lazily on first step
+        self._depth_map = None
+        self._max_depth = None
+    
+    def _ensure_depth_map(self, shape):
+        """Precompute normalized distance-from-boundary for the grid.
+        Periosteal = 0 (surface), endosteal/interior = 1 (deepest).
+        """
+        if self._depth_map is not None:
+            return
+        nx, ny, nz = shape
+        dx = np.minimum(np.arange(nx), nx - 1 - np.arange(nx))
+        dy = np.minimum(np.arange(ny), ny - 1 - np.arange(ny))
+        dz = np.minimum(np.arange(nz), nz - 1 - np.arange(nz))
+        # Min distance to any face at each voxel
+        dist = np.minimum(dx[:, None, None],
+                          np.minimum(dy[None, :, None], dz[None, None, :]))
+        self._max_depth = max(min(nx, ny, nz) // 2, 1)
+        self._depth_map = dist.astype(float) / self._max_depth
+    
+    def _compute_strain_field(self, shape, exercise_intensity):
+        """Map exercise_intensity to a spatial strain field (microstrain).
+        
+        Surface voxels receive full strain; interior attenuated by depth.
+        This captures the key Wolff's law feature: cortical (periosteal)
+        surfaces see high strain, cancellous interior sees less.
+        """
+        self._ensure_depth_map(shape)
+        surface_strain = (self.base_strain
+                          + (self.peak_exercise_strain - self.base_strain)
+                          * exercise_intensity)
+        strain_field = surface_strain * (1.0 - self.strain_attenuation * self._depth_map)
+        return strain_field
+    
+    def _diffuse(self, field, dt, dx=1.0):
+        """3D isotropic diffusion with no-flux (Neumann) boundary conditions.
+        
+        Explicit finite-difference. Stable for D×dt/dx² < 1/6.
+        With D=0.001, dt=60s, dx=1mm: coefficient = 0.06, well within.
+        """
+        padded = np.pad(field, 1, mode='edge')
+        laplacian = (padded[2:, 1:-1, 1:-1] + padded[:-2, 1:-1, 1:-1]
+                     + padded[1:-1, 2:, 1:-1] + padded[1:-1, :-2, 1:-1]
+                     + padded[1:-1, 1:-1, 2:] + padded[1:-1, 1:-1, :-2]
+                     - 6.0 * field) / (dx ** 2)
+        return field + self.diffusion_coeff * laplacian * dt
+    
+    def step(self, state, dt):
+        exercise = state.get_organism_state('exercise_intensity', 0.0)
+        sclerostin_field = state.get_field('bone', 'sclerostin')
+        shape = sclerostin_field.shape
+        
+        # --- Compute current strain field from loading ---
+        strain_field = self._compute_strain_field(shape, exercise)
+        
+        # --- Each osteocyte senses local strain and secretes sclerostin ---
+        osteocyte_agents = state.get_agents('osteocytes')
+        Kn = self.K_strain ** self.strain_cooperativity
+        dt_min = dt / 60.0
+        
+        for agent in osteocyte_agents:
+            i, j, k = agent['position']  # grid indices
+            local_strain = strain_field[i, j, k]
+            
+            # Hill-type suppression: high strain → low secretion
+            strain_n = local_strain ** self.strain_cooperativity
+            suppression = Kn / (Kn + strain_n)
+            
+            # Per-agent mechanosensitivity modulates response
+            secretion = (self.base_sclerostin_rate
+                         * agent['state'].get('mechanosensitivity', 1.0)
+                         * suppression
+                         * dt_min)
+            
+            sclerostin_field[i, j, k] += secretion
+        
+        # --- Paracrine diffusion through bone matrix ---
+        sclerostin_field = self._diffuse(sclerostin_field, dt)
+        
+        # --- First-order decay ---
+        sclerostin_field *= np.exp(-self.decay_rate * dt)
+        
+        state.set_field('bone', 'sclerostin', sclerostin_field)
+
+
+class OsteoblastBoneFormation_0030500(ProcessModel):
+    """
+    Osteoblast-mediated bone formation on spatial bone grid
+    
+    Mechanism: Osteoblasts deposit osteoid (collagen matrix) and mineralize
+    it with hydroxyapatite (calcium-phosphate). Formation rate is regulated
+    by circulating hormones (testosterone, growth hormone) and the local
+    sclerostin concentration on the bone grid. Sclerostin antagonizes the
+    Wnt/β-catenin pathway — low local sclerostin permits osteoblast
+    activation, high local sclerostin suppresses it.
+    
+    Osteocalcin is secreted proportionally to formation activity into
+    the circulation, serving as a serum biomarker and mild positive
+    feedback signal.
+    
+    Mechanical loading effect on formation is captured INDIRECTLY:
+    loading → osteocytes reduce sclerostin (SclerostinRegulation) →
+    local sclerostin drops → osteoblasts here form more bone.
+    This is the mechanistic basis of Wolff's law.
+    
+    Timescale: Hours (matrix deposition and mineralization)
+    Location: Bone tissue (osteoblast surface, spatial)
+    
+    CSV rows covered:
+        - osteoblast does osteocalcin secretion      [9, 38] ng/mL
+        - osteoblast does collagen secretion          (implicit in formation_rate)
+        - osteocalcin increases bone synthesis         (circulatory, positive feedback)
+        - testosterone increases bone synthesis        (circulatory)
+        - growth hormone increases bone synthesis      (circulatory)
+        - mechanical loading increases bone synthesis  (INDIRECT via sclerostin field)
+        - sclerostin decreases bone synthesis          (paracrine, read from local field)
+    
+    Equations:
+        testosterone_effect  = testosterone / (K_test + testosterone)
+        gh_effect            = GH / (K_gh + GH)
+        osteocalcin_effect   = 0.5 + 0.5 × osteocalcin / (K_oc + osteocalcin)
+        
+        Per osteoblast at grid position (i,j,k):
+            local_sclerostin = sclerostin_field[i,j,k]
+            sclerostin_inhibition = 1 / (1 + local_sclerostin / K_scl)
+            activity = test_eff × gh_eff × oc_eff × scl_inhib × agent.formation_capacity
+            
+            formation = base_rate × activity × dt
+            calcium_store_field[i,j,k] += formation
+            osteocalcin_delta += oc_secretion × activity × dt
+    """
+    
+    inputs = {
+        'testosterone':       ('blood', 'testosterone'),
+        'growth_hormone':     ('blood', 'growth_hormone'),
+        'osteocalcin':        ('blood', 'osteocalcin'),
+        'sclerostin_field':   ('bone', 'sclerostin'),
+        'calcium_store_field':('bone', 'calcium_store'),
+    }
+    outputs = {
+        'calcium_store_field':('bone', 'calcium_store'),
+        'osteocalcin':        ('blood', 'osteocalcin'),
+    }
+    
+    parameters = {
+        'base_formation_rate': {
+            'default': 1e-7,
+            'unit': 'relative/hr/agent',
+            'range': (5e-8, 5e-7),
+            'description': 'Per-osteoblast bone formation capacity at full activation'
+        },
+        'K_testosterone': {
+            'default': 250.0,
+            'unit': 'ng/dL',
+            'range': (100.0, 400.0),
+            'description': 'Androgen receptor sensitivity — testosterone for half-max formation stimulus'
+        },
+        'K_gh': {
+            'default': 2.0,
+            'unit': 'ng/mL',
+            'range': (0.5, 5.0),
+            'description': 'GH receptor sensitivity — growth hormone for half-max formation stimulus'
+        },
+        'K_sclerostin': {
+            'default': 8.0,
+            'unit': 'ng/mL',
+            'range': (3.0, 15.0),
+            'description': 'Wnt pathway sensitivity — sclerostin for half-max formation inhibition'
+        },
+        'K_osteocalcin': {
+            'default': 15.0,
+            'unit': 'ng/mL',
+            'range': (5.0, 30.0),
+            'description': 'Osteocalcin receptor sensitivity — half-max positive feedback'
+        },
+        'osteocalcin_secretion_rate': {
+            'default': 0.08,
+            'unit': 'ng/mL/hr/agent',
+            'range': (0.02, 0.2),
+            'description': 'Osteocalcin secreted per agent at full formation activity'
+        },
+    }
+    
+    def __init__(self, base_formation_rate=1e-7, K_testosterone=250.0,
+                 K_gh=2.0, K_sclerostin=8.0, K_osteocalcin=15.0,
+                 osteocalcin_secretion_rate=0.08):
+        super().__init__("osteoblast_bone_formation", TimeScale.HOURS)
+        self.base_formation_rate = base_formation_rate
+        self.K_testosterone = K_testosterone
+        self.K_gh = K_gh
+        self.K_sclerostin = K_sclerostin
+        self.K_osteocalcin = K_osteocalcin
+        self.osteocalcin_secretion_rate = osteocalcin_secretion_rate
+    
+    def step(self, state, dt):
+        testosterone = state.get_signal('blood', 'testosterone')
+        gh = state.get_signal('blood', 'growth_hormone')
+        osteocalcin = state.get_signal('blood', 'osteocalcin')
+        sclerostin_field = state.get_field('bone', 'sclerostin')
+        calcium_store_field = state.get_field('bone', 'calcium_store')
+        
+        osteoblast_agents = state.get_agents('osteoblasts')
+        
+        dt_hr = dt / 3600.0
+        
+        # --- Circulating hormone effects (global, same for all agents) ---
+        testosterone_effect = testosterone / (self.K_testosterone + testosterone)
+        gh_effect = gh / (self.K_gh + gh)
+        
+        # --- Osteocalcin positive feedback (bounded 0.5–1.0 to prevent runaway) ---
+        osteocalcin_effect = 0.5 + 0.5 * osteocalcin / (self.K_osteocalcin + osteocalcin)
+        
+        global_modifiers = testosterone_effect * gh_effect * osteocalcin_effect
+        
+        total_osteocalcin = 0.0
+        
+        for agent in osteoblast_agents:
+            i, j, k = agent['position']
+            
+            # --- Local sclerostin inhibition (spatial, Wolff's law endpoint) ---
+            local_sclerostin = sclerostin_field[i, j, k]
+            sclerostin_inhibition = 1.0 / (1.0 + local_sclerostin / self.K_sclerostin)
+            
+            # --- Combined activity: global hormones × local sclerostin × agent state ---
+            activity = (global_modifiers * sclerostin_inhibition
+                        * agent['state'].get('formation_capacity', 1.0))
+            
+            # --- Deposit mineral locally on grid ---
+            formation = self.base_formation_rate * activity * dt_hr
+            calcium_store_field[i, j, k] += formation
+            
+            # --- Osteocalcin secretion into circulation ---
+            oc_secreted = self.osteocalcin_secretion_rate * activity * dt_hr
+            total_osteocalcin += oc_secreted
+        
+        state.set_field('bone', 'calcium_store', calcium_store_field)
+        state.update_signal('blood', 'osteocalcin', total_osteocalcin)

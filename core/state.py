@@ -161,11 +161,27 @@ class SimulationState:
         """Add an organ (STRUCTURAL CHANGE)"""
         self.organs[organ_id] = {
             'type': organ_type,
-            'signals': kwargs.get('signals', {}),
+            'signals': {},
             'tissues': kwargs.get('tissues', []),
             'mass': kwargs.get('mass'),
             **kwargs
         }
+        
+        representation = kwargs.get('representation', 'lumped')
+        
+        if representation == 'spatial':
+            shape = tuple(kwargs['shape'])
+            self.organs[organ_id]['shape'] = shape
+            self.organs[organ_id]['dx'] = kwargs.get('dx', 1.0)
+            # Initialize spatial fields as ndarrays
+            for signal_name, initial_value in kwargs.get('signals', {}).items():
+                if isinstance(initial_value, np.ndarray):
+                    self.organs[organ_id]['signals'][signal_name] = initial_value
+                else:
+                    self.organs[organ_id]['signals'][signal_name] = \
+                        np.full(shape, initial_value, dtype=np.float32)
+        else:
+            self.organs[organ_id]['signals'] = kwargs.get('signals', {})
         
         self._record_event('organ_added', f"Added organ '{organ_id}'")
         
@@ -315,6 +331,10 @@ class SimulationState:
         if id in self.tissues:
             return self.tissues[id].get('signals', {}).get(signal_name, 0.0)
         
+        # Try organism fourth
+        if id == 'organism':
+            return self.organism.get(signal_name, 0.0)
+        
         return None
     
     def update_signal(self, id, signal_name, delta):
@@ -377,6 +397,13 @@ class SimulationState:
             self.tissues[id]['signals'][signal_name] = new_value
             return
         
+        # Try organism fourth
+        if id == 'organism':
+            current = self.organism.get(signal_name, 0.0)
+            new_value = self._apply_constraint(id, signal_name, current + delta)
+            self.organism[signal_name] = new_value
+            return
+        
         print(f"⚠️  Warning: Cannot update signal '{signal_name}' - '{id}' not found")
     
     def set_signal(self, id, signal_name, value):
@@ -432,12 +459,78 @@ class SimulationState:
             self.tissues[id]['signals'][signal_name] = value
             return
         
+        # Try organism fourth
+        if id == 'organism':
+            self.organism[signal_name] = self._apply_constraint(id, signal_name, value)
+            return
+        
         print(f"⚠️  Warning: Cannot set signal '{signal_name}' - '{id}' not found")
     
     # =========================================================================
     # SPATIAL-SPECIFIC
     # =========================================================================
     
+    def get_field(self, id, signal_name):
+        """
+        Get the raw spatial field (ndarray) for a signal.
+        Searches: organs → entities
+        
+        Unlike get_signal() which returns the mean of a spatial field,
+        this returns the full ndarray for direct spatial manipulation
+        (e.g. diffusion, local reads by spatially-positioned agents).
+        
+        Returns:
+            np.ndarray if spatial, None otherwise
+        """
+        # Try organs first (bone, kidney, etc.)
+        if id in self.organs:
+            organ = self.organs[id]
+            if organ.get('representation') == 'spatial':
+                return organ.get('signals', {}).get(signal_name)
+        
+        # Try entities second
+        if id in self.entities:
+            entity = self.entities[id]
+            if entity['representation'] == 'spatial':
+                return entity['signals'].get(signal_name)
+        
+        return None
+    
+    def set_field(self, id, signal_name, field):
+        """
+        Set the raw spatial field (ndarray) for a signal.
+        Searches: organs → entities
+        
+        Replaces the entire field array. For in-place modifications,
+        get_field() and modify the returned array directly.
+        
+        Args:
+            id: organ or entity identifier
+            signal_name: signal name
+            field: np.ndarray matching the organ/entity shape
+        """
+        # Try organs first
+        if id in self.organs:
+            organ = self.organs[id]
+            if organ.get('representation') == 'spatial':
+                if signal_name in organ.get('signals', {}):
+                    organ['signals'][signal_name] = field
+                else:
+                    print(f"⚠️  Warning: Signal '{signal_name}' doesn't exist in spatial organ '{id}'")
+                return
+        
+        # Try entities second
+        if id in self.entities:
+            entity = self.entities[id]
+            if entity['representation'] == 'spatial':
+                if signal_name in entity['signals']:
+                    entity['signals'][signal_name] = field
+                else:
+                    print(f"⚠️  Warning: Signal '{signal_name}' doesn't exist in spatial entity '{id}'")
+                return
+        
+        print(f"⚠️  Warning: Cannot set field '{signal_name}' - '{id}' not found or not spatial")
+
     def get_signal_field(self, entity_id, signal_name):
         entity = self.entities.get(entity_id)
         if not entity or entity['representation'] != 'spatial':

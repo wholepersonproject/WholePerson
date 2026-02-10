@@ -84,6 +84,9 @@ class ProcessModel(ABC):
                 elif target_id in state.tissues:
                     if state.has_tissue_signal(target_id, signal_name):
                         found = True
+                elif target_id == 'organism':
+                    if state.has_organism_state(signal_name):
+                        found = True
                 
                 if not found:
                     missing.append(f"{target_id}.{signal_name}")
@@ -116,7 +119,8 @@ class ProcessModel(ABC):
                 
                 if (target_id not in state.entities and 
                     target_id not in state.organs and 
-                    target_id not in state.tissues):
+                    target_id not in state.tissues and
+                    target_id != 'organism'):
                     missing_targets.append(f"{target_id}")
             
             elif len(location) == 3:

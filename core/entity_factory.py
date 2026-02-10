@@ -216,7 +216,11 @@ class EntityFactory:
         
         # Check if parent is an organ
         if parent_entity_id in state.organs:
-            # Organs don't have spatial info yet, return None
+            organ = state.organs[parent_entity_id]
+            if organ.get('representation') == 'spatial' and 'shape' in organ:
+                shape = organ['shape']
+                if distribution == 'random':
+                    return tuple(np.random.randint(0, dim) for dim in shape)
             return None
         
         # Check if parent is an entity

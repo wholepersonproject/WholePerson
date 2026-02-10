@@ -26,7 +26,12 @@
       "erythropoietin": 35.74569098389552,
       "calcium": 9.5,
       "calcitonin": 1681.255989718143,
-      "parathyroid_hormone": 504376.79691544274
+      "parathyroid_hormone": 504376.79691544274,
+      "testosterone": 500.0,
+      "growth_hormone": 1.5,
+      "osteocalcin": 4153.64990234375,
+      "calcifediol": 40.0,
+      "fgf23": 30.0
     }
   },
   "organs": {
@@ -34,7 +39,9 @@
       "erythropoiesis_capacity": 1.0
     },
     "bone": {
-      "calcium_store": 1.0
+      "calcium_store": 1.0,
+      "sclerostin": 2.9581408500671387,
+      "strain": 800.0
     },
     "kidney": {
       "epo_production_capacity": 0.9499998688697815,

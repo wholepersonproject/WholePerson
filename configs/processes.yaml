@@ -138,4 +138,30 @@ processes:
       calcium_decrease_coeff: 2.0
       calcium_threshold: 20.0
     dependencies: []
+
+  sclerostin_regulation:
+    class: models.skeletal.SclerostinRegulation_0046850
+    timescale: minutes
+    parameters:
+      base_sclerostin_rate: 0.05
+      K_strain: 1500.0
+      strain_cooperativity: 3
+      diffusion_coeff: 0.001
+      decay_rate: 3.2e-5
+      base_strain: 800.0
+      peak_exercise_strain: 2500.0
+      strain_attenuation: 0.7
+    dependencies: []
+
+  osteoblast_bone_formation:
+    class: models.skeletal.OsteoblastBoneFormation_0030500
+    timescale: hours
+    parameters:
+      base_formation_rate: 1.0e-7
+      K_testosterone: 250.0
+      K_gh: 2.0
+      K_sclerostin: 8.0
+      K_osteocalcin: 15.0
+      osteocalcin_secretion_rate: 0.08
+    dependencies: [sclerostin_regulation, parathyroid_hormone_release]
       

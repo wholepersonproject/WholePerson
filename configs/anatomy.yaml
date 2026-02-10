@@ -19,8 +19,10 @@ organs:
 
   bone:
     organ_system: skeletal
-    representation: lumped
+    representation: spatial
     spatial_type: distributed
+    shape: [20, 20, 20]
+    dx: 1.0
     volume: 1750.0
     signals:
       calcium_store:
@@ -29,6 +31,17 @@ organs:
         min: 0.0
         max: 1.5
         warn_below: 0.7
+      sclerostin:
+        initial: 3.0
+        unit: ng/mL
+        min: 0.0
+        max: 20.0
+        warn_above: 8.0
+      strain:
+        initial: 800.0
+        unit: microstrain
+        min: 0.0
+        max: 10000.0
 
   kidney:
     organ_system: excretory
@@ -334,6 +347,39 @@ entities:
         min: 0.0
         max: 100.0
         warn_above: 100.0
+      testosterone:
+        initial: 500.0
+        unit: ng/dL
+        min: 0.0
+        max: 1500.0
+        warn_below: 250.0
+        warn_above: 1000.0
+      growth_hormone:
+        initial: 1.5
+        unit: ng/mL
+        min: 0.0
+        max: 40.0
+        warn_above: 20.0
+      osteocalcin:
+        initial: 20.0
+        unit: ng/mL
+        min: 0.0
+        max: 100.0
+        warn_below: 9.0
+        warn_above: 38.0
+      calcifediol:
+        initial: 40.0
+        unit: ng/mL
+        min: 0.0
+        max: 150.0
+        warn_below: 30.0
+        warn_above: 60.0
+      fgf23:
+        initial: 30.0
+        unit: RU/mL
+        min: 0.0
+        max: 500.0
+        warn_above: 100.0
 
   beta_cells:
     type: cell_population
@@ -384,6 +430,26 @@ entities:
     distribution: random
     agent_properties:
       parathyroid_hormone_secretion_rate: 7.0
+
+  osteoblasts:
+    type: cell_population
+    representation: agents
+    spatial_type: localized
+    parent_entity: bone
+    count: 500
+    distribution: random
+    agent_properties:
+      formation_capacity: 1.0
+
+  osteocytes:
+    type: cell_population
+    representation: agents
+    spatial_type: localized
+    parent_entity: bone
+    count: 1000
+    distribution: random
+    agent_properties:
+      mechanosensitivity: 1.0
 
 # =========================================================================
 # FLOWS
