@@ -9,29 +9,34 @@
     "sex": "male",
     "heart_rate": 70.0,
     "age_years": 30.0,
-    "tissue_oxygen_saturation": 100.0,
+    "tissue_oxygen_saturation": 80.32338589381528,
     "cardiac_output": 5.0
   },
   "entities": {
     "blood": {
-      "calcitriol": 50.0,
-      "glucose": 37.25918910938076,
-      "insulin": 211.62271837648143,
-      "glucagon": 18.06639848734762,
+      "opg": 1.5563636787210868,
+      "inflammation": 0.0,
+      "calcitriol": 54.47561987709561,
+      "glucose": 37.33803137535492,
+      "insulin": 212.14618949201707,
+      "glucagon": 17.985652118078875,
       "oxygen": 80.0,
       "lactate": 1.0,
       "pancreatic_polypeptide": 10,
-      "rbc_count": 7099353.34826758,
-      "hemoglobin": 21.29805991345837,
-      "erythropoietin": 35.74569098389552,
-      "calcium": 9.5,
-      "calcitonin": 1681.255989718143,
-      "parathyroid_hormone": 504376.79691544274,
+      "rbc_count": 4206514.055711719,
+      "hemoglobin": 12.619542167135158,
+      "erythropoietin": 119.97185858898486,
+      "calcium": 7.895628056306149,
+      "phosphate": 2.296582256009681,
+      "estrogen": 0.199999999999986,
+      "t3": 1.0000000000000666,
+      "calcitonin": 40.1357639342915,
+      "parathyroid_hormone": 24.96384483554376,
       "testosterone": 500.0,
       "growth_hormone": 1.5,
-      "osteocalcin": 4153.64990234375,
-      "calcifediol": 40.0,
-      "fgf23": 30.0
+      "osteocalcin": 49.772766933673076,
+      "calcifediol": 38.464797633534424,
+      "fgf23": 20.707593360292517
     }
   },
   "organs": {
@@ -40,14 +45,14 @@
     },
     "bone": {
       "calcium_store": 1.0,
-      "sclerostin": 2.9581408500671387,
+      "sclerostin": 2.950528621673584,
       "strain": 800.0
     },
     "kidney": {
       "epo_production_capacity": 0.9499998688697815,
       "functional_mass": 1.0,
       "filtered_calcium": 0.0,
-      "urinary_calcium": 0.0
+      "urinary_calcium": 0.15799996256828308
     },
     "liver": {
       "glucose": 100.0,
@@ -69,12 +74,12 @@
   },
   "tissues": {
     "muscle_tissue": {
-      "glucose": 263.07741650331695,
+      "glucose": 261.16436774558593,
       "glycogen": 15.0,
       "insulin": 5.0
     },
     "adipose_tissue": {
-      "glucose": 299.2288256371162,
+      "glucose": 299.22911494422755,
       "free_fatty_acids": 0.4,
       "insulin": 5.0
     }

@@ -607,7 +607,7 @@ class PhysiologyEngine:
         # 6. Advance time
         self.state.time += global_dt
     
-    def run(self, duration_seconds, global_dt=60.0, record_interval=300, 
+    def run(self, duration_seconds, global_dt=10.0, record_interval=300, 
             perturbation_manager=None):
         """
         Run simulation

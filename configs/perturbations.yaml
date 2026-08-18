@@ -1,18 +1,50 @@
 dietary:
+  breakfast:
+    type: meal
+    parameters:
+      carbohydrate_g: 40
+      duration_minutes: 240
+    effects:
+      - target: stomach.gastric_contents
+        profile: spike
+        peak_time: 10
+        peak_magnitude: 40
+        decay_rate: 0.3
+
+  lunch:
+    type: meal
+    parameters:
+      carbohydrate_g: 60
+      duration_minutes: 240
+    effects:
+      - target: stomach.gastric_contents
+        profile: spike
+        peak_time: 12
+        peak_magnitude: 60
+        decay_rate: 0.3
+
+  dinner:
+    type: meal
+    parameters:
+      carbohydrate_g: 70
+      duration_minutes: 240
+    effects:
+      - target: stomach.gastric_contents
+        profile: spike
+        peak_time: 14
+        peak_magnitude: 70
+        decay_rate: 0.3
   mixed_meal:
     type: meal
     parameters:
       carbohydrate_g: 50
-      duration_minutes: 30
+      duration_minutes: 240
     effects:
-      - target: blood.glucose
+      - target: stomach.gastric_contents
         profile: spike
-        peak_time: 30
-        peak_magnitude: 140
-        decay_rate: 0.05
-      - target: organism.fed_status
-        value: fed
-        duration: 240
+        peak_time: 12
+        peak_magnitude: 50
+        decay_rate: 0.3
   
   high_carb_meal:
     type: meal

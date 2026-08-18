@@ -4,6 +4,58 @@
 # ORGANS
 # =========================================================================
 organs:
+  adrenal_gland:
+    organ_system: endocrine
+    representation: lumped
+    spatial_type: localized
+    position: [-15, 15, 340]
+    volume: 8.0
+    signals:
+      cortical_capacity:
+        initial: 1.0
+        unit: relative
+        min: 0.0
+        max: 2.0
+        warn_below: 0.5
+      medullary_capacity:
+        initial: 1.0
+        unit: relative
+        min: 0.0
+        max: 2.0
+        warn_below: 0.5
+
+
+  stomach:
+      organ_system: digestive
+      representation: lumped
+      spatial_type: localized
+      position: [-20, -20, 400]
+      volume: 1.0
+      signals:
+        gastric_contents:
+          initial: 0.0
+          unit: g
+          min: 0.0
+          max: 400.0
+
+  small_intestine:
+    organ_system: digestive
+    representation: lumped
+    spatial_type: localized
+    position: [0, -30, 320]
+    volume: 1.0
+    signals:
+      bicarbonate:
+        initial: 6.3
+        unit: mEq
+        min: 0.0
+        max: 60.0
+        warn_below: 2.0
+      luminal_glucose:
+        initial: 0.0
+        unit: g
+        min: 0.0
+        max: 400.0
   bone_marrow:
     organ_system: hematopoietic
     representation: lumped
@@ -52,6 +104,12 @@ organs:
     dx: 1.0
     volume: 0.5
     signals:
+      gfr:
+        initial: 1.25
+        unit: dL/min
+        min: 0.1
+        max: 2.0
+        warn_below: 0.5
       epo_production_capacity:
         initial: 0.95
         unit: fraction
@@ -171,6 +229,13 @@ organs:
     spatial_type: localized
     position: [0, -20, 530]
     volume: 18.0
+    signals:
+      thyroglobulin:
+        initial: 1.0
+        unit: relative
+        min: 0.0
+        max: 1.5
+        warn_below: 0.3
     geometry:
       type: composite
       primitives:
@@ -266,6 +331,99 @@ entities:
     spatial_type: distributed
     volume: 5.0
     signals:
+      c_peptide:
+        initial: 1.0
+        unit: ng/mL
+        min: 0.0
+        max: 15.0
+        warn_below: 0.4
+        warn_above: 6.0
+      dhea:
+        initial: 5.0
+        unit: ng/mL
+        min: 0.0
+        max: 40.0
+        warn_below: 1.0
+      igf1:
+        initial: 300.0
+        unit: ng/mL
+        min: 0.0
+        max: 900.0
+        warn_below: 90.0
+        warn_above: 600.0
+      t4:
+        initial: 8.0
+        unit: µg/dL
+        min: 0.0
+        max: 30.0
+        warn_below: 4.5
+        warn_above: 12.0
+      cortisol:
+        initial: 12.0
+        unit: µg/dL
+        min: 0.0
+        max: 80.0
+        warn_above: 25.0
+      epinephrine:
+        initial: 40.0
+        unit: pg/mL
+        min: 0.0
+        max: 3000.0
+        warn_above: 600.0
+      norepinephrine:
+        initial: 250.0
+        unit: pg/mL
+        min: 0.0
+        max: 6000.0
+        warn_above: 2000.0
+      dopamine:
+        initial: 40.0
+        unit: pg/mL
+        min: 0.0
+        max: 1000.0
+        warn_above: 200.0
+      adiponectin:
+        initial: 10.0
+        unit: µg/mL
+        min: 0.0
+        max: 60.0
+        warn_below: 4.0
+      resistin:
+        initial: 12.0
+        unit: ng/mL
+        min: 0.0
+        max: 80.0
+        warn_above: 25.0
+      glp1:
+          initial: 5.0
+          unit: pmol/L
+          min: 0.0
+          max: 200.0
+          warn_above: 80.0
+      somatostatin:
+        initial: 12.0
+        unit: pg/mL
+        min: 0.0
+        max: 100.0
+        warn_above: 50.0
+
+      amylin:
+        initial: 6.0
+        unit: pmol/L
+        min: 0.0
+        max: 100.0
+        warn_above: 35.0
+      opg:
+        initial: 1.0
+        unit: relative
+        min: 0.0
+        max: 5.0
+      inflammation:
+        initial: 0.0
+        unit: relative
+        min: 0.0
+        max: 1.0
+        warn_above: 0.3
       calcitriol:
         initial: 50.0
         unit: pg/mL
@@ -335,6 +493,31 @@ entities:
         min: 0.0
         max: 100.0
         warn_above: 100.0
+
+      phosphate:
+        initial: 3.7
+        unit: mg/dL
+        min: 0.0
+        max: 20.0
+        warn_below: 2.5
+        warn_above: 4.5
+ 
+      estrogen:
+        initial: 0.03        # typical adult male; set to ~0.15 for premenopausal female
+        unit: ng/mL
+        min: 0.0
+        max: 2.0
+        warn_below: 0.01
+        warn_above: 0.2
+ 
+      t3:
+        initial: 1.2
+        unit: ng/mL
+        min: 0.0
+        max: 10.0
+        warn_below: 0.8
+        warn_above: 2.0
+ 
       calcitonin: 
         initial: 10.0
         unit: g/dL
@@ -441,6 +624,16 @@ entities:
     agent_properties:
       formation_capacity: 1.0
 
+  osteoclasts:
+    type: cell_population
+    representation: agents
+    spatial_type: localized
+    parent_entity: bone
+    count: 200
+    distribution: random
+    agent_properties:
+      resorption_capacity: 1.0   # dimensionless; tune to match formation rate
+
   osteocytes:
     type: cell_population
     representation: agents
@@ -511,7 +704,6 @@ organism:
   exercise_intensity: 0.0
   dietary_calcium: 1000.0  # mg/day
   body_position: standing
-  age: 20
   sex: male 
   heart_rate:
     initial: 70.0

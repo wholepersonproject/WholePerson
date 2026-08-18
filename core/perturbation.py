@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 import yaml
 
@@ -11,12 +12,19 @@ class Perturbation:
     
     def activate(self, time):
         self.start_time = time
-        duration = self.config.get('parameters', {}).get('duration_minutes', 60)
+        params = self.config.get('parameters', {})
+        duration = params.get('duration_minutes', 60)
+        for effect in self.config.get('effects', []):
+            if 'peak_time' in effect:
+                tail = 4.0 / effect.get('decay_rate', 0.05)
+                duration = max(duration, effect['peak_time'] + tail)
         self.end_time = time + duration * 60
         self.active = True
     
     def is_active(self, time):
         if not self.active:
+            return False
+        if time < self.start_time:
             return False
         if self.end_time and time >= self.end_time:
             self.active = False
@@ -91,19 +99,17 @@ class Perturbation:
         peak_time = effect['peak_time'] * 60
         peak_magnitude = effect['peak_magnitude']
         decay_rate = effect['decay_rate']
-        
+        if peak_time <= 0:
+            return
         if time_since_start < peak_time:
             progress = time_since_start / peak_time
-            target_value = peak_magnitude * progress
+            rate = peak_magnitude * np.sin(progress * np.pi / 2)
         else:
             time_since_peak = time_since_start - peak_time
-            target_value = peak_magnitude * np.exp(-decay_rate * time_since_peak / 60)
-        
-        current = state.get_signal(entity_id, signal_name)
-        alpha = 0.1
-        new_value = current * (1 - alpha) + target_value * alpha
-        state.set_signal(entity_id, signal_name, new_value)
-    
+            rate = peak_magnitude * np.exp(-decay_rate * time_since_peak / 60)
+        amount = rate * (dt / 60.0) / (peak_time / 60.0)
+        state.update_signal(entity_id, signal_name, amount)
+
     def _apply_injection(self, state, entity_id, signal_name, effect, dt):
         time_since_start = state.time - self.start_time
         peak_time = effect['peak_time'] * 60
@@ -126,13 +132,25 @@ class PerturbationManager:
             self.library = yaml.safe_load(f)
         self.perturbations = []
     
-    def add_perturbation(self, category, name, start_time):
+    def add_perturbation(self, category, name, start_time, carb_grams=None, peak_time=None):
         if category not in self.library:
             raise ValueError(f"Unknown category: {category}")
         if name not in self.library[category]:
             raise ValueError(f"Unknown perturbation: {name}")
         
         config = self.library[category][name]
+        if carb_grams is not None or peak_time is not None:
+            # deep-copy so the shared library is never mutated, then override the meal
+            config = copy.deepcopy(config)
+            if carb_grams is not None:
+                config.setdefault('parameters', {})['carbohydrate_g'] = carb_grams
+            for effect in config.get('effects', []):
+                if effect.get('target') != 'stomach.gastric_contents':
+                    continue
+                if carb_grams is not None and 'peak_magnitude' in effect:
+                    effect['peak_magnitude'] = carb_grams   # meal size (g carbohydrate)
+                if peak_time is not None and 'peak_time' in effect:
+                    effect['peak_time'] = peak_time          # eating speed / composition (min to peak fill)
         perturb = Perturbation(f"{category}_{name}", config)
         perturb.activate(start_time)
         self.perturbations.append(perturb)

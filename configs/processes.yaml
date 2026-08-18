@@ -10,38 +10,237 @@ processes:
   # =========================================================================
   # GLUCOSE/INSULIN PATHWAY (MINUTES - frequent execution)
   # =========================================================================
-  insulin_secretion:
-    class: models.endocrine.InsulinSecretion
+  c_peptide_secretion:
+    class: models.endocrine.CPeptideSecretion
     timescale: minutes
     dependencies: []
     parameters:
+      basal_secretion: 0.004
+      max_secretion: 0.05
       glucose_sensitivity: 1.0
-      basal_secretion: 5.0
-      max_secretion: 150.0
+
+  dhea_secretion:
+    class: models.endocrine.DHEASecretion
+    timescale: minutes
+    dependencies: []
+    parameters:
+      basal_secretion: 0.1155
+
+  pancreatic_bicarbonate_secretion:
+    class: models.endocrine.PancreaticBicarbonateSecretion
+    timescale: minutes
+    dependencies: [f_cell_dynamics]
+    parameters:
+      basal_secretion: 0.146
+      pp_ref: 80.0
+      pp_k: 300.0
+      clearance_half_life_min: 30.0
+
+  igf1_secretion:
+    class: models.endocrine.IGF1Secretion
+    timescale: minutes
+    dependencies: [fed_fasted_transition]
+    parameters:
+      clearance_per_min: 9.627e-4
+      fed_multiplier: 1.15
+      fasted_multiplier: 0.85
+      age_override: 0.0
+
+  growth_hormone_secretion:
+    class: models.endocrine.GrowthHormoneSecretion
+    timescale: minutes
+    dependencies: [igf1_secretion]
+    parameters:
+      basal_secretion: 0.052
+      igf1_ref: 300.0
+      igf1_k: 200.0
+      igf1_effect: 0.6
+
+  thyroglobulin_storage:
+    class: models.endocrine.ThyroglobulinStorage
+    timescale: hours
+    dependencies: []
+    parameters:
+      capacity: 1.0
+      refill_time_constant_hr: 72.0
+
+  t4_synthesis:
+    class: models.endocrine.T4Synthesis
+    timescale: hours
+    dependencies: [thyroglobulin_storage]
+    parameters:
+      basal_secretion: 0.033
+      thyroglobulin_cost: 0.004
+
+  t4_deiodination_liver:
+    class: models.endocrine.T4Deiodination
+    timescale: hours
+    dependencies: [t4_synthesis]
+    parameters:
+      site: liver
+      conversion_efficiency: 1.733e-3
+
+  t4_deiodination_kidney:
+    class: models.endocrine.T4Deiodination
+    timescale: hours
+    dependencies: [t4_synthesis]
+    parameters:
+      site: kidney
+      conversion_efficiency: 1.083e-3
+
+  t4_deiodination_thyroid:
+    class: models.endocrine.T4Deiodination
+    timescale: hours
+    dependencies: [t4_synthesis]
+    parameters:
+      site: thyroid
+      conversion_efficiency: 8.664e-4
+
+  t4_deiodination_muscle:
+    class: models.endocrine.T4Deiodination
+    timescale: hours
+    dependencies: [t4_synthesis]
+    parameters:
+      site: muscle
+      conversion_efficiency: 6.498e-4
+
+  # REMOVED: models.skeletal.ThyroidHormoneEffects_ODE_GO0046850
+  # It clamped blood.t3 to a fixed 1.0 set-point. Rows 67-70 (t4_deiodination_*)
+  # now own blood.t3 with real production, and the two would fight.
+  # osteoclast_bone_resorption's dependency was repointed to t4_deiodination_liver.
+
+  cortisol_secretion:
+    class: models.endocrine.CortisolSecretion
+    timescale: minutes
+    dependencies: []
+    parameters:
+      mean_secretion: 0.104
+      circadian_amplitude: 0.5
+      peak_hour: 8.0
+      stress_factor: 1.0
+
+  catecholamine_secretion:
+    class: models.endocrine.CatecholamineSecretion
+    timescale: minutes
+    dependencies: []
+    parameters:
+      basal_epinephrine: 13.9
+      basal_norepinephrine: 86.6
+      basal_dopamine: 13.9
+      epinephrine_exercise_gain: 15.0
+      norepinephrine_exercise_gain: 8.0
+      dopamine_exercise_gain: 3.0
+
+  adiponectin_secretion:
+    class: models.endocrine.AdiponectinSecretion
+    timescale: minutes
+    dependencies: []
+    parameters:
+      basal_secretion: 0.0462
+      adipose_mass_factor: 1.0
+
+  resistin_secretion:
+    class: models.endocrine.ResistinSecretion
+    timescale: minutes
+    dependencies: []
+    parameters:
+      basal_secretion: 0.1386
+      adipose_mass_factor: 1.0
+
+  insulin_secretion:
+    class: models.endocrine.BetaCellOscillator
+    timescale: minutes
+    dependencies: [somatostatin_secretion, f_cell_dynamics, fed_fasted_transition]
+    parameters:
+      glucose_sensitivity: 1.0
+      basal_insulin: 0.85
+      max_insulin: 139.7
+      clearance_per_min: 0.138629
+      glucose_K: 155.0
+      glucose_n: 6.0
+      osc_tau_a: 0.3
+      osc_tau_r: 3.5
+      osc_gamma: 0.8
+      osc_beta0: -0.2
+      osc_beta1: 0.9
+      osc_K: 110.0
+      osc_n: 4.0
+      pulse_frac: 0.35
+      fed_multiplier: 1.15
+      fasted_multiplier: 0.85
+      sst_ref: 12.0
+      sst_k: 35.0
+      pp_ref: 80.0
+      pp_k: 500.0
 
   glucagon_secretion:
     class: models.endocrine.GlucagonSecretion
     timescale: minutes
-    dependencies: []
+    dependencies: [somatostatin_secretion, amylin_secretion, f_cell_dynamics, fed_fasted_transition]
     parameters:
-      basal_secretion: 60.0
+      basal_glucagon: 95.0
+      insulin_k: 40.0
+      clearance_per_min: 0.115525
+      fasted_multiplier: 1.15
+      fed_multiplier: 0.85
+      pp_ref: 400.0
+      pp_k: 500.0
+      sst_ref: 12.0
+      sst_k: 20.0
+      amylin_ref: 6.0
+      amylin_k: 50.0
+
+  remote_insulin:
+    class: models.endocrine.RemoteInsulin
+    timescale: minutes
+    dependencies: [insulin_secretion]
+    parameters:
+      action_td_min: 12.0
+      n_stages: 3
 
   glucose_uptake_muscle:
     class: models.endocrine.GlucoseUptake
     timescale: minutes
-    dependencies: [insulin_secretion]
+    dependencies: [remote_insulin, insulin_secretion, adiponectin_secretion, resistin_secretion]
     parameters:
       target_entity: muscle_tissue
-      basal_rate: 0.05
+      basal_rate: 0.36
       insulin_sensitivity: 1.0
+
+  glucose_uptake_heart:
+    class: models.endocrine.GlucoseUptake
+    timescale: minutes
+    dependencies: [remote_insulin, insulin_secretion, adiponectin_secretion, resistin_secretion]
+    parameters:
+      target_entity: heart
+      basal_rate: 0.109
+      insulin_sensitivity: 1.2
+
+  capillary_glucose_transport_liver:
+    class: models.endocrine.CapillaryGlucoseTransport
+    timescale: minutes
+    dependencies: []
+    parameters:
+      target_organ: liver
+      blood_volume_L: 5.0
+      extraction_efficiency: 1.0
+
+  capillary_glucose_transport_brain:
+    class: models.endocrine.CapillaryGlucoseTransport
+    timescale: minutes
+    dependencies: []
+    parameters:
+      target_organ: brain
+      blood_volume_L: 5.0
+      extraction_efficiency: 1.0
 
   glucose_uptake_adipose:
     class: models.endocrine.GlucoseUptake
     timescale: minutes
-    dependencies: [insulin_secretion]
+    dependencies: [remote_insulin, insulin_secretion, adiponectin_secretion, resistin_secretion]
     parameters:
       target_entity: adipose_tissue
-      basal_rate: 0.02
+      basal_rate: 0.06
       insulin_sensitivity: 1.0
 
   hormone_degradation:
@@ -54,20 +253,96 @@ processes:
   # =========================================================================
   glycogen_synthesis:
     class: models.endocrine.GlycogenSynthesis
-    timescale: hours
-    dependencies: [glucose_uptake_muscle, glucose_uptake_adipose]
+    timescale: minutes
+    dependencies: [glucose_uptake_muscle, glucose_uptake_adipose, fed_fasted_transition]
+
+  fed_fasted_transition:
+    class: models.endocrine.FedFastedTransition
+    timescale: minutes
+    dependencies: []
+    parameters:
+      gut_threshold_g: 5.0
+      trigger_on_glucose: false
+      glucose_fed_threshold: 100.0
+      glucose_fasted_threshold: 80.0
+
+  gastric_emptying:
+    class: models.endocrine.GastricEmptying
+    timescale: minutes
+    dependencies: []
+    parameters:
+      half_saturation_g: 30.0
+      glp1_ref: 5.0
+      max_emptying_rate: 1.6
+      glp1_k: 35.0
+      amylin_ref: 6.0
+      amylin_k: 40.0
+
+  glp1_secretion:
+    class: models.endocrine.GLP1Secretion
+    timescale: minutes
+    dependencies: [gastric_emptying]
+    parameters:
+      basal_secretion: 1.7
+      nutrient_coupling: 21.0
+      luminal_k: 15.0
+
+  intestinal_glucose_absorption:
+    class: models.endocrine.IntestinalGlucoseAbsorption
+    timescale: minutes
+    dependencies: [glp1_secretion]
+    parameters:
+      half_absorption_min: 15.0
+      blood_volume_dL: 50.0
 
   glycogen_breakdown:
     class: models.endocrine.GlycogenBreakdown
-    timescale: hours
-    dependencies: []
+    timescale: minutes
+    dependencies: [glucagon_secretion, fed_fasted_transition]
+    parameters:
+      liver_rate: 0.5
+      muscle_rate: 0.15
+      glucagon_threshold: 45.0
+      muscle_glucagon_sensitivity: 1.0
+      muscle_volume_dL: 250.0
+
+  muscle_gluconeogenic_output:
+    class: models.endocrine.MuscleGluconeogenicOutput
+    timescale: minutes
+    dependencies: [fed_fasted_transition, insulin_secretion, cortisol_secretion]
+    parameters:
+      basal_output: 0.03466
+      output_substrate: lactate
+      glucagon_sensitivity: 0.0
+      insulin_ref: 5.0
+      insulin_k: 30.0
+      fed_multiplier: 0.85
+      fasted_multiplier: 1.15
+      cortisol_ref: 10.0
+      cortisol_k: 15.0
+      cortisol_amp: 0.8
+      glucose_ref: 90.0
+      glucose_k: 60.0
+      glucagon_ref: 60.0
+      glucagon_k: 60.0
+
+  hepatic_lactate_uptake:
+    class: models.endocrine.HepaticLactateUptake
+    timescale: minutes
+    dependencies: [muscle_gluconeogenic_output]
+    parameters:
+      uptake_half_life_min: 20.0
+      mg_dL_glucose_per_mmol_L_lactate: 9.0
+      conversion_efficiency: 0.6
 
   hepatic_glucose_production:
     class: models.endocrine.HepaticGlucoseProduction
-    timescale: hours
-    dependencies: [glycogen_breakdown]
+    timescale: minutes
+    dependencies: [remote_insulin, glycogen_breakdown, glucagon_secretion, insulin_secretion, cortisol_secretion, fed_fasted_transition]
     parameters:
-      production_rate: 50.0
+      production_rate: 2.0
+      glucose_ref: 90.0
+      glucose_k: 60.0
 
   # =========================================================================
   # PANCREATIC POLYPEPTIDE (F-CELLS)
@@ -75,7 +350,7 @@ processes:
   f_cell_dynamics:
     class: models.endocrine.f_cell_polypeptide_0036322
     timescale: minutes
-    dependencies: []
+    dependencies: [fed_fasted_transition]
 
   # =========================================================================
   # ERYTHROPOIESIS (EPO/RBC HOMEOSTASIS)
@@ -111,34 +386,190 @@ processes:
     class: models.endocrine.TissueGlucoseConsumption
     parameters:
       target_entity: muscle_tissue
-      consumption_rate: 0.35
+      consumption_rate: 2.4
     dependencies: [glucose_uptake_muscle]
+
+  glucose_consumption_brain:
+    class: models.endocrine.TissueGlucoseConsumption
+    parameters:
+      target_entity: brain
+      consumption_rate: 5.0
+    dependencies: [capillary_glucose_transport_brain]
+
+  glucose_consumption_liver:
+    class: models.endocrine.TissueGlucoseConsumption
+    parameters:
+      target_entity: liver
+      consumption_rate: 1.33
+    dependencies: [capillary_glucose_transport_liver]
+
+  glucose_consumption_heart:
+    class: models.endocrine.TissueGlucoseConsumption
+    parameters:
+      target_entity: heart
+      consumption_rate: 0.8
+    dependencies: [glucose_uptake_heart]
 
   glucose_consumption_adipose:
     class: models.endocrine.TissueGlucoseConsumption
     parameters:
       target_entity: adipose_tissue
-      consumption_rate: 0.12
+      consumption_rate: 0.4
     dependencies: [glucose_uptake_adipose]
 
-  calcitonin_release: 
+  # =========================================================================
+  # CALCIUM / PTH / CALCITONIN  (MINUTES)
+  # =========================================================================
+  calcitonin_release:
     class: models.skeletal.CalcitoninSecretion_0036161
     timescale: minutes
-    parameters: 
-      calcitonin_secretion_rate: 5.0
+    parameters:
+      calcitonin_secretion_rate: 0.002
       calcium_activation_coeff: 2.0
-      calcium_threshold: 20.0
+      calcium_threshold: 7.0
     dependencies: []
 
-  parathyroid_hormone_release: 
+  parathyroid_hormone_release:
     class: models.skeletal.ParathyroidHormoneSecretion_0035898
     timescale: minutes
-    parameters: 
-      parathyroid_hormone_secretion_rate: 5.0
+    parameters:
+      parathyroid_hormone_secretion_rate: 0.014
       calcium_decrease_coeff: 2.0
-      calcium_threshold: 20.0
+      calcium_threshold: 7.0
     dependencies: []
 
+  # =========================================================================
+  # RENAL CALCIUM HANDLING  (MINUTES)
+  # Run order within each minute tick:
+  #   1. renal_calcium_filtration  — sets filtered_calcium (~15% of filtered)
+  #   2. dct_calcium_reabsorption  — PTH/VitD-regulated TRPV5 reabsorption
+  #   3. renal_calcium_excretion   — CD reabsorption + urinary loss
+  # =========================================================================
+  renal_calcium_filtration_GO0070293:
+    class: models.skeletal.RenalCalciumFiltration_GO0070293
+    timescale: minutes
+    parameters:
+      gfr: 120.0
+      ionized_fraction: 0.60
+      pct_reabsorption: 0.65
+      tal_reabsorption: 0.20
+      blood_volume_dL: 50.0
+    dependencies: []
+
+  dct_calcium_reabsorption_GO0070293:
+    class: models.skeletal.DCTCalciumReabsorption_0035898
+    timescale: minutes
+    parameters:
+      Vmax_basal: 0.40
+      Vmax_max: 1.1
+      Km: 0.3
+      K_pth: 20.0
+    dependencies:
+      - parathyroid_hormone_release
+      - renal_calcium_filtration_GO0070293
+
+  renal_calcium_excretion_GO0070293:
+    class: models.skeletal.RenalCalciumExcretion_GO0070293
+    timescale: minutes
+    parameters:
+      cd_reabsorption_fraction: 0.33
+      blood_volume_dL: 50.0
+    dependencies:
+      - renal_calcium_filtration_GO0070293
+      - dct_calcium_reabsorption_GO0070293
+
+  # =========================================================================
+  # PHOSPHATE BALANCE  (MINUTES)
+  # =========================================================================
+  phosphate_balance_ode_GO0006817:
+    class: models.skeletal.PhosphateBalance_ODE_GO0006817
+    timescale: minutes
+    parameters:
+      blood_volume: 3000.0
+      basal_phos: 3.7
+    dependencies: []
+
+  renal_phosphate_excretion_ode_GO0070293:
+    class: models.skeletal.RenalPhosphateExcretion_ODE_GO0070293
+    timescale: minutes
+    parameters:
+      basal_reabsorption: 0.80
+      gfr: 120.0
+      pth_inhibition_gain: 0.25 
+      fgf23_inhibition_gain: 0.25
+    dependencies:
+      - parathyroid_hormone_release
+      - fgf23_secretion_ode_GO0006817
+
+  # =========================================================================
+  # FGF23 / VITAMIN D AXIS  (MINUTES / HOURS)
+  # =========================================================================
+  fgf23_secretion_ode_GO0006817:
+    class: models.skeletal.FGF23Secretion_ODE_GO0006817
+    timescale: minutes
+    parameters:
+      basal: 40.0
+      phos_sensitivity: 10.0
+      phos_threshold: 3.5
+      time_constant: 120.0
+      clearance: 0.01
+    dependencies: []
+
+  vitamin_d_catabolism_ode_GO0030500:
+    class: models.skeletal.VitaminDCatabolism_ODE_GO0030500
+    timescale: minutes
+    parameters:
+      basal_inactivation: 0.0004
+      calcitriol_feedback: 0.0004
+      fgf23_enhancement: 0.0003
+      pth_suppression: 0.3
+    dependencies:
+      - parathyroid_hormone_release
+
+  proximal_tubule_hydroxylase_GO0035898:
+    class: models.skeletal.ProximalTubuleHydroxylase
+    timescale: hours
+    parameters:
+      Vmax: 16.0
+      K_calcifediol: 15.0
+      K_pth: 40.0
+      K_fgf23: 40.0
+      conversion_ratio: 0.001
+    dependencies:
+      - parathyroid_hormone_release
+      - fgf23_secretion_ode_GO0006817
+
+  # =========================================================================
+  # INTESTINAL ABSORPTION  (HOURS)
+  # =========================================================================
+  intestinal_calcium_absorption_GO0055074:
+    class: models.skeletal.IntestinalCalciumAbsorption_GO0055074
+    timescale: hours
+    parameters:
+      base_absorption_fraction: 0.35
+      K_calcitriol: 40.0
+      K_calcitonin: 50.0
+      blood_volume_dL: 50.0
+    dependencies:
+      - calcitonin_release
+      - proximal_tubule_hydroxylase_GO0035898
+
+  intestinal_phosphate_absorption_GO0006817:
+    class: models.skeletal.IntestinalPhosphateAbsorption_GO0006817
+    timescale: hours
+    parameters:
+      dietary_phosphate: 1000.0
+      base_absorption_fraction: 0.73
+      K_calcitriol: 40.0
+      K_fgf23: 150.0
+      blood_volume_dL: 50.0
+    dependencies:
+      - fgf23_secretion_ode_GO0006817
+      - proximal_tubule_hydroxylase_GO0035898
+
+  # =========================================================================
+  # BONE REMODELING  (MINUTES / HOURS)
+  # =========================================================================
   sclerostin_regulation:
     class: models.skeletal.SclerostinRegulation_0046850
     timescale: minutes
@@ -164,4 +595,89 @@ processes:
       K_osteocalcin: 15.0
       osteocalcin_secretion_rate: 0.08
     dependencies: [sclerostin_regulation, parathyroid_hormone_release]
-      
+
+  osteoclast_bone_resorption_GO0046850:
+    class: models.skeletal.OsteoclastBoneResorption_GO0046850
+    timescale: hours
+    parameters:
+      base_resorption_rate: 5.0e-8
+      K_pth: 30.0
+      K_estrogen: 0.05
+      K_t3: 1.0
+      calcium_per_unit: 350.0
+      phosphate_calcium_ratio: 0.63
+      blood_volume_dL: 50.0
+    dependencies:
+      - parathyroid_hormone_release
+      - estrogen_dynamics_ode_GO0046850
+      - t4_deiodination_liver
+      - osteoblast_bone_formation
+
+  # =========================================================================
+  # ESTROGEN / THYROID HORMONE DYNAMICS  (MINUTES)
+  # =========================================================================
+  estrogen_dynamics_ode_GO0046850:
+    class: models.skeletal.EstrogenBoneProtection_ODE_GO0046850
+    timescale: minutes
+    parameters:
+      basal_estrogen: 0.2
+      reproductive_estrogen: 0.5
+      clearance_rate: 0.001
+      time_constant: 480.0
+    dependencies: []
+
+  opg_secretion_GO0046850:
+    class: models.skeletal.OPGSecretion_GO0046850
+    timescale: hours
+    parameters:
+      basal_opg: 1.0
+      K_pth: 30.0
+      clearance: 0.002
+    dependencies:
+      - parathyroid_hormone_release
+      - osteoblast_bone_formation
+
+  dietary_phosphate_modifiers_GO0006817:
+    class: models.skeletal.DietaryPhosphateModifiers_GO0006817
+    timescale: hours
+    parameters:
+      dietary_phosphate: 1000.0
+      phytate_loss_fraction: 0.12
+      cap_coupling: 0.003
+      blood_volume_dL: 50.0
+    dependencies: []
+
+  intestinal_calcium_barrier_GO0055074:
+    class: models.skeletal.IntestinalCalciumBarrier_GO0055074
+    timescale: hours
+    parameters:
+      dietary_calcium: 1000.0
+      max_barrier_effect: 0.04
+      K_calcium: 9.5
+      blood_volume_dL: 50.0
+    dependencies: []
+  renal_glucose_excretion:
+    class: models.urinary.RenalGlucoseExcretion
+    timescale: minutes
+    dependencies: []
+    parameters:
+      tm_mg_per_min: 375.0
+      fallback_gfr_dl_per_min: 1.25
+
+  somatostatin_secretion:
+    class: models.endocrine.SomatostatinSecretion
+    timescale: minutes
+    dependencies: []
+    parameters:
+      basal_secretion: 1.4
+      max_secretion: 8.0
+      glucose_sensitivity: 1.0
+
+  amylin_secretion:
+    class: models.endocrine.AmylinSecretion
+    timescale: minutes
+    dependencies: [insulin_secretion]
+    parameters:
+      basal_secretion: 0.163
+      insulin_coupling: 2.044
+      insulin_k: 60.0

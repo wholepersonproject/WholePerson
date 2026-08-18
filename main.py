@@ -2,7 +2,6 @@
 """
 Baseline simulation without perturbations
 """
-
 from core.state import SimulationState
 from core.entity_factory import EntityFactory, ProcessLoader
 from engine.engine import PhysiologyEngine
