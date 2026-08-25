@@ -1,7 +1,7 @@
-# PhysiomeTwin
+# Whole Person Physiome Models
 
-A multi-scale, mechanistic simulator of whole-body human physiology — a "digital
-twin" built from the Whole Person Physiome project. It represents the body as a
+A multi-scale, mechanistic simulator of whole-body human physiology, built from
+the Whole Person Physiome project. It represents the body as a
 hierarchy of interacting signals (molecules → tissues → organs → organ systems →
 organism) and steps them forward in time with a set of physiological process
 models running on their natural timescales (seconds to months).
@@ -221,3 +221,4 @@ the full story, including bringing your own Dexcom/Libre data.
   inspect without running anything.
 - `data/tables/data/` holds the draft reference spreadsheets the process models
   were parameterized against, one per organ system.
+
